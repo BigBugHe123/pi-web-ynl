@@ -12,7 +12,13 @@ const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 process.env.PI_CODING_AGENT_DIR = agentDir;
 await mkdir(join(agentDir, "extensions"), { recursive: true });
 await mkdir(cwd);
-await writeFile(join(agentDir, "extensions", "rtk.ts"), "export default () => {};\n");
+await mkdir(join(agentDir, "extensions", "ask-user-question"), { recursive: true });
+await writeFile(join(agentDir, "extensions", "ask-user-question", "package.json"), JSON.stringify({
+  name: "ask-user-question",
+  description: "Native test extension",
+  pi: { native: [{ command: "ask-user-question.exe" }] },
+}));
+await writeFile(join(agentDir, "extensions", "ask-user-question", "ask-user-question.exe"), "native-binary");
 
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() } });
 const { allowFileRoot } = await jiti.import("../../../lib/file-access.ts");
@@ -33,13 +39,31 @@ test("lists auto-discovered top-level extensions", async () => {
   assert.deepEqual(body.packages, []);
   assert.deepEqual(body.standaloneExtensions, [{
     kind: "extension",
-    name: "rtk",
-    path: join(agentDir, "extensions", "rtk.ts"),
-    relativePath: "extensions/rtk.ts",
+    name: "ask-user-question",
+    path: join(agentDir, "extensions", "ask-user-question", "ask-user-question.exe"),
+    relativePath: "ask-user-question",
     scope: "global",
     enabled: true,
+    description: "Native test extension",
   }]);
   assert.equal(body.totals.extensions, 1);
+});
+
+test("native extension switch writes precise global overrides and reports state", async () => {
+  const extensionPath = join(agentDir, "extensions", "ask-user-question", "ask-user-question.exe");
+  await writeFile(settingsPath, JSON.stringify({ extensions: ["other.ts"] }));
+
+  const disabledResponse = await postPlugins({ action: "disable", path: extensionPath });
+  const disabled = await disabledResponse.json();
+  assert.equal(disabledResponse.status, 200);
+  assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")).extensions, ["other.ts", `-${extensionPath}`]);
+  assert.equal(disabled.standaloneExtensions[0].enabled, false);
+
+  const enabledResponse = await postPlugins({ action: "enable", path: extensionPath });
+  const enabled = await enabledResponse.json();
+  assert.equal(enabledResponse.status, 200);
+  assert.deepEqual(JSON.parse(await readFile(settingsPath, "utf8")).extensions, ["other.ts", `+${extensionPath}`]);
+  assert.equal(enabled.standaloneExtensions[0].enabled, true);
 });
 
 test("reports the package description from package.json", async () => {
