@@ -45,9 +45,11 @@ export interface SubagentProfile {
   model?: string;
   thinking?: ThinkingLevel;
   maxTurns?: number;
+  promptMode: "replace" | "append";
+  disallowedTools?: string[];
+  exposure?: "direct" | "deferred";
   inheritContext: boolean;
   runInBackground: boolean;
-  promptMode: "replace" | "append";
   color?: string;
   isolation?: "worktree" | "off";
   persistSession?: boolean;
@@ -141,16 +143,12 @@ export interface SubagentRunInfo {
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 // A profile may name `powershell` explicitly; the defaults stay portable, and
 // resolveShellTools() picks the platform's shell for either name at spawn.
-const BUILTIN_TOOLS = new Set([...DEFAULT_TOOLS, "powershell"]);
+const BUILTIN_TOOLS = new Set([...DEFAULT_TOOLS, "powershell", "todo"]);
 const SUBAGENT_CONTROL_TOOLS = new Set<string>(SUBAGENT_CONTROL_TOOL_NAMES);
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 /**
- * Frontmatter keys the web UI owns. Everything else in a profile file belongs to
- * whichever runtime reads it (pi-subagents and friends), so a save from this app must
- * carry those keys through untouched. Dropping them silently changed behaviour:
- * `allowed_subagents` was lost and an orchestrator could no longer spawn anything,
- * `exclude_extensions` was lost and an opt-out became an opt-in.
+ * Frontmatter keys the web editor owns. Other profile metadata is carried through.
  */
 const MANAGED_FRONTMATTER_KEYS = new Set([
   "description",
@@ -170,14 +168,18 @@ const MANAGED_FRONTMATTER_KEYS = new Set([
   "color",
   "isolation",
   "persist_session",
+  "name",
+  "disallowedTools",
+  "maxTurns",
+  "systemPromptMode",
+  "exposure",
 ]);
 
 const FRONTMATTER_OPEN_RE = /^(?:\uFEFF)?---[ \t]*(?:\r\n|\n|\r)/;
 
 /**
- * The UI exposes two booleans (`load_skills` / `load_extensions`); pi-subagents reads
- * the aliases `skills` / `extensions`, which also accept a whitelist. Aliases are
- * carried through by `unmanagedFrontmatter` and only rewritten once we own them.
+ * The Pi Web profile editor manages its resource switches while carrying metadata
+ * owned by other runtimes through unchanged.
  */
 const OWNED_ALIAS_VALUES = new Set(["none", "all", "true", "false"]);
 
@@ -188,9 +190,7 @@ function parseCodemode(value: unknown): SubagentCodemode {
 }
 
 function validateSavedCodemode(value: unknown): SubagentCodemode {
-  if (value === undefined || value === "inherit" || value === "on" || value === "off") {
-    return value === undefined ? "off" : value;
-  }
+  if (value === undefined || value === "inherit" || value === "on" || value === "off") return value === undefined ? "off" : value;
   throw new Error("codemode must be one of: inherit, on, off");
 }
 
@@ -198,12 +198,10 @@ function parseMcp(value: unknown): SubagentMcp {
   return value === "on" || value === true ? "on" : "off";
 }
 
-/** Undefined when the request names none (an older client): the save then keeps the file's value. */
 function validateSavedMcp(value: unknown): SubagentMcp | undefined {
   if (value === undefined || value === "on" || value === "off") return value;
   throw new Error("mcp must be one of: on, off");
 }
-
 const BUILTIN_PROFILES: SubagentProfile[] = [
   {
     name: "general-purpose",
@@ -268,24 +266,11 @@ function resourceBoolean(value: unknown, fallback: boolean): boolean {
   return Array.isArray(value) || typeof value === "string" ? true : fallback;
 }
 
-/**
- * Skill or extension names from a list or a comma-separated string, trimmed and
- * deduplicated. Empty and non-string items are dropped, as pi-subagents does: a stray
- * comma must not make the whole profile unreadable.
- */
 export function subagentNameList(value: unknown): string[] {
   const items: unknown[] = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
-  return [...new Set(items
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim())
-    .filter(Boolean))];
+  return [...new Set(items.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))];
 }
 
-/**
- * The names a profile lists in `skills:` or `extensions:`. `undefined` means no list: the
- * key is absent or empty, or holds a switch spelling (`true`, `all`, `none`, ...) that
- * `load_skills` / `load_extensions` fall back to and a save keeps in step with them.
- */
 function profileNameList(value: unknown): string[] | undefined {
   if (Array.isArray(value)) return subagentNameList(value);
   if (typeof value !== "string" || OWNED_ALIAS_VALUES.has(value.trim().toLowerCase())) return undefined;
@@ -293,13 +278,11 @@ function profileNameList(value: unknown): string[] | undefined {
   return names.length > 0 ? names : undefined;
 }
 
-/** An `extensions:` list; `*` in it loads every extension, as in pi-subagents. */
 function profileExtensions(value: unknown): string[] | undefined {
   const names = profileNameList(value);
   return names?.includes("*") ? undefined : names;
 }
 
-/** `load_skills` / `load_extensions`, else the alias, where `none` and `false` switch it off. */
 function profileResourceSwitch(value: unknown, fallback: boolean): boolean {
   if (typeof value === "string" && ["none", "false"].includes(value.trim().toLowerCase())) return false;
   return resourceBoolean(value, fallback);
@@ -352,31 +335,23 @@ function unmanagedFrontmatter(stored: Record<string, unknown>): Record<string, u
 }
 
 /**
- * pi-web filters `tools` down to the built-ins it can dispatch, which would drop
- * another runtime's `ext:<name>` selectors on every save — carry them through.
+ * Keep extension selectors when Pi Web edits a profile; the Rust extension can
+ * use these names to allow extension tools it already has registered.
  */
-function composeToolsField(tools: string[], storedTools: unknown): string {
-  const selectors = stringList(storedTools).filter((tool) => tool.toLowerCase().startsWith("ext:"));
+function composeToolsField(tools: string[], storedTools: unknown, preserveStoredSelectors = true): string {
+  const selectors = preserveStoredSelectors
+    ? stringList(storedTools).filter((tool) => tool.toLowerCase().startsWith("ext:"))
+    : [];
   const combined = [...tools, ...selectors.filter((selector) => !tools.some((tool) => tool.toLowerCase() === selector.toLowerCase()))];
   return combined.length > 0 ? combined.join(", ") : "none";
 }
 
-/**
- * Keep the alias in step with the boolean the UI owns. A boolean (or a "none" /
- * "all" spelling) is ours to rewrite; a whitelist such as `extensions:
- * pi-advisor-flow` expresses scoping the UI cannot show, so it stays as authored.
- */
-function syncFlagAlias(
-  frontmatter: Record<string, unknown>,
-  alias: string,
-  storedValue: unknown,
-  flag: boolean,
-): void {
-  const owned = storedValue === undefined
-    || typeof storedValue === "boolean"
+function syncFlagAlias(frontmatter: Record<string, unknown>, alias: string, storedValue: unknown, flag: boolean): void {
+  const owned = storedValue === undefined || typeof storedValue === "boolean"
     || (typeof storedValue === "string" && OWNED_ALIAS_VALUES.has(storedValue.trim().toLowerCase()));
   if (owned) frontmatter[alias] = flag;
 }
+
 function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfile | null {
   try {
     const source = readFileSync(filePath, "utf8");
@@ -384,17 +359,19 @@ function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfi
     const name = stringValue(data?.name) ?? basename(filePath, ".md");
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) return null;
     const thinkingValue = stringValue(data?.thinking) as ThinkingLevel | undefined;
-    const maxTurnsValue = typeof data?.max_turns === "number" ? Math.floor(data.max_turns) : undefined;
-    const tools = parseTools(data?.tools, DEFAULT_TOOLS);
+    const maxTurnsValue = typeof data?.maxTurns === "number" ? Math.floor(data.maxTurns) : typeof data?.max_turns === "number" ? Math.floor(data.max_turns) : undefined;
+    const rawTools = stringList(data?.tools);
+    const tools = rawTools.length > 0 ? rawTools : DEFAULT_TOOLS;
     const codemode = parseCodemode(data?.codemode);
     const skills = profileNameList(data?.skills);
-    const extensions = profileExtensions(data?.extensions);
-    const disallowedTools = new Set(parseTools(data?.disallowed_tools, []));
+    const extensions = profileNameList(data?.extensions);
+    const deniedToolNames = stringList(data?.disallowedTools ?? data?.disallowed_tools);
+    const disallowedTools = new Set(deniedToolNames);
     // The deny list is also handed to the runtime, which resolves both sides against the
     // loaded extensions. This parse-time filter is only the cheap literal fast path: it
     // cannot see extension aliases (`ext:codegraph` vs `ext:@scope/pi-codegraph`), so it
     // must never be the only gate.
-    const disallowedExtensionTools = parseExtensionToolSelectors(data?.disallowed_tools);
+    const disallowedExtensionTools = parseExtensionToolSelectors(data?.disallowedTools ?? data?.disallowed_tools);
     const deniedKeys = new Set(
       disallowedExtensionTools.map((tool) => normalizeExtensionSelector(tool).toLowerCase()),
     );
@@ -412,20 +389,22 @@ function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfi
       description: stringValue(data?.description) ?? name,
       systemPrompt: rest.trim(),
       tools: tools.filter((tool) => !disallowedTools.has(tool)),
-      ...(extensionSelectors.length > 0 ? { extensionTools } : {}),
-      ...(disallowedExtensionTools.length > 0 ? { disallowedExtensionTools } : {}),
+      ...(deniedToolNames.length > 0 ? { disallowedTools: deniedToolNames } : {}),
       ...(skills !== undefined ? { skills } : {}),
       ...(extensions !== undefined ? { extensions } : {}),
       loadSkills: profileResourceSwitch(data?.load_skills ?? data?.skills, false),
       loadExtensions: profileResourceSwitch(data?.load_extensions ?? data?.extensions, extensionSelectors.length > 0),
       codemode,
       mcp: parseMcp(data?.mcp),
+      ...(extensionSelectors.length > 0 ? { extensionTools } : {}),
+      ...(disallowedExtensionTools.length > 0 ? { disallowedExtensionTools } : {}),
       ...(stringValue(data?.model) ? { model: stringValue(data?.model) } : {}),
       ...(thinkingValue && THINKING_LEVELS.has(thinkingValue) ? { thinking: thinkingValue } : {}),
       ...(maxTurnsValue && maxTurnsValue > 0 ? { maxTurns: maxTurnsValue } : {}),
       inheritContext: booleanValue(data?.inherit_context, false),
       runInBackground: booleanValue(data?.run_in_background, false),
-      promptMode: data?.prompt_mode === "replace" ? "replace" : "append",
+      promptMode: (data?.systemPromptMode ?? data?.prompt_mode) === "replace" ? "replace" : "append",
+      ...(data?.exposure === "direct" || data?.exposure === "deferred" ? { exposure: data.exposure } : {}),
       ...(stringValue(data?.color) ? { color: stringValue(data?.color) } : {}),
       ...(data?.isolation === "worktree" || data?.isolation === "off" ? { isolation: data.isolation } : {}),
       ...(typeof data?.persist_session === "boolean" ? { persistSession: data.persist_session } : {}),
@@ -462,8 +441,7 @@ function profileDirectories(cwd: string): Array<[string, Exclude<SubagentScope, 
 /**
  * A built-in has no file, so `enabled: false` cannot be written next to it the way
  * it is for a profile on disk. Its off state is a name in `agents/settings.json`
- * instead of a copied-out override file, which would otherwise freeze the built-in
- * prompt at the version it was copied from.
+ * instead of a copied-out override file, which would otherwise freeze the built-in prompt.
  */
 function builtInProfiles(): SubagentProfile[] {
   const disabled = disabledBuiltInSubagents();
@@ -538,7 +516,7 @@ export function saveSubagentProfile(
 ): SubagentProfile {
   const name = assertProfileName(profile.name);
   const tools = [...new Set(profile.tools.filter((tool) => BUILTIN_TOOLS.has(tool)))];
-  const extensionTools = [...new Set(profile.extensionTools ?? [])];
+  const disallowedTools = [...new Set(profile.disallowedTools ?? [])];
   if (profile.thinking && !THINKING_LEVELS.has(profile.thinking)) {
     throw new Error(`Invalid thinking level: ${profile.thinking}`);
   }
@@ -548,14 +526,9 @@ export function saveSubagentProfile(
   const maxTurns = profile.maxTurns && profile.maxTurns > 0
     ? Math.floor(profile.maxTurns)
     : undefined;
-  const displayName = profile.displayName.trim() || name;
   const description = profile.description.trim() || name;
   const systemPrompt = profile.systemPrompt.trim();
   const model = profile.model?.trim() || undefined;
-  const loadSkills = profile.loadSkills === true;
-  const loadExtensions = profile.loadExtensions === true;
-  const codemode = validateSavedCodemode(profile.codemode);
-  const requestedMcp = validateSavedMcp(profile.mcp);
   const promptMode = profile.promptMode === "replace" ? "replace" : "append";
   const dir = assertWritableProfileDirectory(cwd, scope);
   mkdirSync(dir, { recursive: true });
@@ -564,39 +537,45 @@ export function saveSubagentProfile(
   }
   const filePath = join(dir, `${name}.md`);
   const stored = readStoredFrontmatter(filePath);
+  const extensionTools = profile.extensionTools === undefined
+    ? parseExtensionToolSelectors(stored.tools)
+    : [...new Set(profile.extensionTools)];
+  const loadSkills = profile.loadSkills === undefined ? profileResourceSwitch(stored.load_skills ?? stored.skills, false) : profile.loadSkills === true;
+  const loadExtensions = profile.loadExtensions === undefined ? profileResourceSwitch(stored.load_extensions ?? stored.extensions, false) : profile.loadExtensions === true;
+  const codemode = profile.codemode === undefined ? parseCodemode(stored.codemode) : validateSavedCodemode(profile.codemode);
+  const requestedMcp = validateSavedMcp(profile.mcp);
   const mcp = requestedMcp ?? parseMcp(stored.mcp);
+  const inheritContext = profile.inheritContext ?? booleanValue(stored.inherit_context, false);
+  const runInBackground = profile.runInBackground ?? booleanValue(stored.run_in_background, false);
   const managed: Record<string, unknown> = {
+    name,
     description,
-    display_name: displayName,
-    tools: composeToolsField([...tools, ...extensionTools], stored.tools),
+    tools: composeToolsField([...tools, ...extensionTools], stored.tools, profile.extensionTools === undefined),
+    display_name: name,
     load_skills: loadSkills,
     load_extensions: loadExtensions,
     codemode,
-    // Written once on, or once the file names it; profiles that never used MCP stay without the key.
     ...(mcp === "on" || stored.mcp !== undefined ? { mcp } : {}),
     enabled: profile.enabled,
-    inherit_context: profile.inheritContext,
-    run_in_background: profile.runInBackground,
+    inherit_context: inheritContext,
+    run_in_background: runInBackground,
     prompt_mode: promptMode,
+    systemPromptMode: promptMode,
   };
-  const skills = profile.skills === undefined ? profileNameList(stored.skills) : subagentNameList(profile.skills);
-  if (skills !== undefined) {
-    const storedSkills = profileNameList(stored.skills);
-    managed.skills = storedSkills !== undefined && JSON.stringify(storedSkills) === JSON.stringify(skills)
-      ? stored.skills
-      : skills;
-  } else {
-    syncFlagAlias(managed, "skills", stored.skills, loadSkills);
-  }
-  // The panel has no editor for an `extensions:` list, so the file's own list always stays.
+  syncFlagAlias(managed, "skills", stored.skills, loadSkills);
   syncFlagAlias(managed, "extensions", stored.extensions, loadExtensions);
-  const extensions = profileExtensions(stored.extensions);
-  if (model) managed.model = model;
-  if (profile.thinking) managed.thinking = profile.thinking;
+  if (maxTurns) managed.maxTurns = maxTurns;
   if (maxTurns) managed.max_turns = maxTurns;
+  if (disallowedTools.length > 0) managed.disallowedTools = disallowedTools;
+  if (disallowedTools.length > 0) managed.disallowed_tools = disallowedTools;
+  if (profile.exposure) managed.exposure = profile.exposure;
+  if (disallowedTools.length === 0) delete managed.disallowedTools;
+  if (disallowedTools.length === 0) delete managed.disallowed_tools;
   if (profile.color?.trim()) managed.color = profile.color.trim();
   if (profile.isolation) managed.isolation = profile.isolation;
   if (profile.persistSession !== undefined) managed.persist_session = profile.persistSession;
+  if (model) managed.model = model;
+  if (profile.thinking) managed.thinking = profile.thinking;
   // Managed keys win; keys this app does not own follow in their original order.
   const frontmatter: Record<string, unknown> = { ...managed };
   for (const [key, value] of Object.entries(unmanagedFrontmatter(stored))) {
@@ -607,23 +586,22 @@ export function saveSubagentProfile(
   return {
     ...profile,
     name,
-    displayName,
+    displayName: name,
     description,
     systemPrompt,
     tools,
-    ...(skills !== undefined ? { skills } : {}),
-    extensions,
-    ...(extensionTools.length > 0 ? { extensionTools } : {}),
     loadSkills,
     loadExtensions,
     codemode,
     mcp,
+    inheritContext,
+    runInBackground,
+    disallowedTools,
+    ...(extensionTools.length > 0 ? { extensionTools } : {}),
+    exposure: profile.exposure,
     ...(model ? { model } : { model: undefined }),
     ...(maxTurns ? { maxTurns } : { maxTurns: undefined }),
     promptMode,
-    ...(profile.color ? { color: profile.color } : {}),
-    ...(profile.isolation ? { isolation: profile.isolation } : {}),
-    ...(profile.persistSession !== undefined ? { persistSession: profile.persistSession } : {}),
     scope,
     filePath,
   };
