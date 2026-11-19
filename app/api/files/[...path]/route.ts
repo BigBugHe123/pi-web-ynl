@@ -324,7 +324,9 @@ function getContentDisposition(filePath: string, asDownload = false): string {
 function streamFile(filePath: string, stat: fs.Stats, contentType: string, rangeHeader: string | null, asDownload = false): Response {
   const headers: Record<string, string> = {
     "Content-Type": contentType,
-    "Cache-Control": "no-cache",
+    // Next compresses route responses, including partial responses. Keep byte ranges
+    // aligned with the stored file bytes, especially for compressible SVG previews.
+    "Cache-Control": "no-cache, no-transform",
     "Accept-Ranges": "bytes",
     "Content-Disposition": getContentDisposition(filePath, asDownload),
     "X-Content-Type-Options": "nosniff",
