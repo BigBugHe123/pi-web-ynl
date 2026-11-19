@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
 import { stripAnsi } from "@/lib/ansi";
@@ -15,17 +15,16 @@ import type {
 } from "@/lib/types";
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
 import { normalizeToolCalls } from "@/lib/normalize";
-import { AgentCommandError, agentStatusUrl, EXTENSION_REPORTED_CODE, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
+import { AgentCommandError, agentBackendUrl, agentFullStateUrl, agentStatusUrl, EXTENSION_REPORTED_CODE, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { createSideChat, SIDE_REFUSAL_MESSAGES } from "@/lib/side-chat-client";
 import { missingCwdFromBody } from "@/lib/missing-cwd";
-import { forkFailureMessage } from "@/lib/sidebar-actions";
 import {
   deleteSessionViewSnapshot,
   getSessionViewSnapshot,
   setSessionViewSnapshot,
   snapshotCoversLoadedEntries,
 } from "@/lib/session-view-cache";
-import { clearDraft, getDraft, holdStoredDraft, parkedNewSessionDraftKey, rekeyDraft, restoreDraftSubmission, setDraft, type ChatDraft } from "@/lib/draft-store";
+import { clearDraft, getDraft, parkedNewSessionDraftKey, rekeyDraft, restoreDraftSubmission, setDraft, type ChatDraft } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -241,8 +240,7 @@ export interface UseAgentSessionOptions {
   onToolEnd?: (toolName: string) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
-  /** A fork to open. `session` is its row when it may belong to another project (a fork into another folder). */
-  onSessionForked?: (newSessionId: string, session?: SessionInfo) => void;
+  onSessionForked?: (newSessionId: string) => void;
   /** `/side`: a side chat was forked from this session; open its tab. The
    *  prompt argument, if any, seeds the new chat's composer. */
   onSideSession?: (session: SessionInfo, prompt: string | null) => void;
@@ -256,7 +254,7 @@ export interface UseAgentSessionOptions {
   /** Registers the debug panel's reader of this page's stream and lease: it reads refs only, never a request. */
   onDebugSnapshotReaderChange?: (reader: (() => DebugClientSession) | null) => void;
   onSessionStatsPanelOpen?: () => void;
-  /** Opens Settings on a section; a bare `/mcp` the built-in MCP extension owns opens Settings › MCP. */
+  /** Opens Settings on a section; a bare `/mcp` the built-in MCP extension owns opens Settings 鈥?MCP. */
   onOpenSettings?: (section: SettingsSection) => void;
   setToolPreset?: (preset: ToolPreset) => void;
   deferInitialScroll?: boolean;
@@ -290,20 +288,6 @@ function asConcreteThinkingLevel(value?: string | null): ConcreteThinkingLevel |
 // Session id -> user entry being edited. ChatWindow remounts per session, so a
 // pending edit lives here as long as that session's in-memory draft does.
 const pendingHistoryEdits = new Map<string, string>();
-// The target lives only in this page, so its draft text is never stored: after
-// a reload the rewritten message would join the branch instead of forking it.
-const historyEditDraftHolds = new Map<string, () => void>();
-
-function setPendingHistoryEdit(sessionId: string, entryId: string | null): void {
-  if (entryId) {
-    pendingHistoryEdits.set(sessionId, entryId);
-    if (!historyEditDraftHolds.has(sessionId)) historyEditDraftHolds.set(sessionId, holdStoredDraft(sessionId));
-    return;
-  }
-  pendingHistoryEdits.delete(sessionId);
-  historyEditDraftHolds.get(sessionId)?.();
-  historyEditDraftHolds.delete(sessionId);
-}
 
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
@@ -320,7 +304,7 @@ type SessionLeaseOutcome = SessionLeaseReply | "unanswered" | null;
 // This page's id, the `?holder=` of its event streams: lib/page-debug.ts.
 export { peekPageId };
 function sessionLeaseUrl(sid: string): string {
-  return `/api/agent/${encodeURIComponent(sid)}/lease`;
+  return agentBackendUrl(`/api/v1/sessions/${encodeURIComponent(sid)}/lease`);
 }
 // Retry temporary model-list failures without requiring a page refresh.
 const MODELS_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
@@ -666,7 +650,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventConnectionRef.current = new AgentEventConnection({
       createSource: (sid) => trackEventSource(
         "agent",
-        new EventSource(`/api/agent/${encodeURIComponent(sid)}/events?holder=${encodeURIComponent(pageId())}`),
+        new EventSource(agentBackendUrl(`/api/v1/sessions/${encodeURIComponent(sid)}/events?holder=${encodeURIComponent(pageId())}`)),
         sid,
       ),
       onEvent: (event) => handleAgentEventRef.current?.(event as AgentEvent),
@@ -765,12 +749,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // so cancelling or reloading never hides the rest of the conversation.
   const [editEntryId, setEditEntryId] = useState(() => {
     const sid = session?.id;
-    if (sid && !getDraft(sid)) setPendingHistoryEdit(sid, null);
+    if (sid && !getDraft(sid)) pendingHistoryEdits.delete(sid);
     return (sid && pendingHistoryEdits.get(sid)) || null;
   });
   const setEdit = useCallback((entryId: string | null) => {
     if (!session?.id) return;
-    setPendingHistoryEdit(session.id, entryId);
+    if (entryId) pendingHistoryEdits.set(session.id, entryId);
+    else pendingHistoryEdits.delete(session.id);
     setEditEntryId(entryId);
   }, [session?.id]);
   const handleEditContent = useCallback((message: UserMessage, entryId: string) => {
@@ -874,7 +859,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // Freshness check: when the disk snapshot is unchanged (same opaque
       // revision), keep any history the user already paged in instead of
       // collapsing back to the fresh 50-entry window. The state hooks then
-      // only need the server's tree/leaf/stats — never a history reset.
+      // only need the server's tree/leaf/stats 鈥?never a history reset.
       const cached = getSessionViewSnapshot(sid);
       const revisionUnchanged = Boolean(
         d.snapshotRevision
@@ -966,7 +951,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       try {
         const runId = promptRunIdRef.current;
         const usageRequestId = ++contextUsageRequestIdRef.current;
-        const stateRes = await fetch(`/api/sessions/${encodeURIComponent(sid)}/state`);
+        const stateRes = await fetch(agentFullStateUrl(sid));
         if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
         const agentState = await stateRes.json() as { running: boolean; state?: AgentStateResponse };
         if (sessionIdRef.current !== sid) return null;
@@ -1117,7 +1102,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // so pi resolves settings.json defaultTools instead of being pinned to ours (#700).
       const toolNames = getToolNamesForPreset(toolPreset);
       sessionToolsPinnedRef.current = toolNames !== undefined;
-      const res = await fetch("/api/agent/new", {
+      const res = await fetch(agentBackendUrl("/api/v1/sessions"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1144,6 +1129,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         thinkingLevel?: ThinkingLevelOption;
       };
       const realId = result.sessionId;
+      await Promise.all([
+        fetch("/api/cwd/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cwd: newSessionCwd }),
+        }).catch(() => undefined),
+        fetch("/api/sessions?force=1", { cache: "no-store" })
+          .then((response) => response.body?.cancel())
+          .catch(() => undefined),
+      ]);
       sessionIdRef.current = realId;
       applyNewSessionStartState(result, selectedModel, selectedThinkingLevel);
       return realId;
@@ -1790,7 +1785,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const data = await res.json() as { running?: boolean; state?: AgentStateResponse };
       // A slow response can straddle a run boundary (previous run finished
       // and the user already started the next one while this request was in
-      // flight) — everything in it is stale, drop it.
+      // flight) 鈥?everything in it is stale, drop it.
       if (sessionIdRef.current !== sid || promptRunIdRef.current !== runId) return;
       const state = data.state;
       applyLiveUsage(state, sid, runId, usageRequestId);
@@ -1813,7 +1808,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
         if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
         // The poll leaves the prompt out: read the one the run ended with once, as agent_end does.
-        fetch(`/api/agent/${encodeURIComponent(sid)}`)
+        fetch(agentFullStateUrl(sid))
           .then((r) => r.ok ? r.json() : null)
           .then((d: { state?: AgentStateResponse } | null) => {
             if (!d || !sessionHookMountedRef.current || sessionIdRef.current !== sid) return;
@@ -1823,7 +1818,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       await finishPromptWithoutStream(sid, runId);
     } catch {
-      // Network still down — the next poll / visibility / online tick retries.
+      // Network still down 鈥?the next poll / visibility / online tick retries.
     }
   }, [applyLiveUsage, finishPromptWithoutStream, syncLiveModel]);
 
@@ -1983,7 +1978,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const runId = promptRunIdRef.current;
           const usageRequestId = ++contextUsageRequestIdRef.current;
           loadSession(sid);
-          fetch(`/api/agent/${encodeURIComponent(sid)}`)
+          fetch(agentFullStateUrl(sid))
             .then((r) => r.ok ? r.json() : null)
             .then((d: { state?: AgentStateResponse } | null) => {
               if (!d || !sessionHookMountedRef.current || sessionIdRef.current !== sid || promptRunIdRef.current !== runId) return;
@@ -2050,7 +2045,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "message_update": {
         // Ignore streaming events arriving after this run already finished
         // (e.g. SSE data buffered while the tab was frozen, flushed after
-        // reconcile) — they would resurrect a ghost streaming bubble.
+        // reconcile) 鈥?they would resurrect a ghost streaming bubble.
         if (!agentRunningRef.current) break;
         // Transcript system messages (prompt and tool loadout) are filtered
         // server-side; keep them out of the chat should one arrive.
@@ -2087,8 +2082,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       case "message_end": {
         // Same late-event guard: after reconcile finished this run,
-        // loadSession already loaded this message from the session file —
-        // appending it again would duplicate it.
+        // loadSession already loaded this message from the session file 鈥?        // appending it again would duplicate it.
         if (!agentRunningRef.current) {
           // An extension's sendMessage({ display: true }) while idle (a timer, a
           // watcher): pi appends it to the session before this event, so a session
@@ -2465,7 +2459,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const sid = sessionIdRef.current ?? session?.id ?? await ensureNewSession();
       if (!sid) throw new Error("Unable to create a session for the shell command");
-      // A `user_bash` handler's dialog (ctx.ui.confirm…) reaches the page only
+      // A `user_bash` handler's dialog (ctx.ui.confirm鈥? reaches the page only
       // through the stream, which a fresh composer has not opened yet. The
       // output streams through it too; without one it comes at the end.
       await ensureEventsConnected(sid).catch(() => {});
@@ -2550,15 +2544,31 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return;
     setForkingEntryId(entryId);
+    addNotice({ type: "info", message: translate("chat.forkStarting") });
     try {
-      const result = await sendAgentCommand<{ cancelled?: boolean; newSessionId?: string }>(sid, {
+      const result = await sendAgentCommand<{
+        cancelled?: boolean;
+        cancelReason?: "unsaved" | "extension";
+        newSessionId?: string;
+      }>(sid, {
         type: "fork",
         entryId,
       });
-      const { cancelled, newSessionId } = result ?? {};
+      const { cancelled, cancelReason, newSessionId } = result ?? {};
       if (!cancelled && newSessionId) {
         if (draft) setDraft(newSessionId, draft);
         onSessionForked?.(newSessionId);
+      } else if (cancelled) {
+        addNotice({
+          type: "warning",
+          message: translate(cancelReason === "unsaved"
+            ? "chat.forkCancelledUnsaved"
+            : cancelReason === "extension"
+              ? "chat.forkCancelledExtension"
+              : "chat.forkCancelled"),
+        });
+      } else {
+        addNotice({ type: "error", message: translate("chat.forkCancelled") });
       }
     } catch (e) {
       console.error("Fork failed:", e);
@@ -2566,39 +2576,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       setForkingEntryId(null);
     }
-  }, [addNotice, onSessionForked]);
-
-  /**
-   * pi's Fork for a session whose folder is gone (pi 1.5.2): the whole session
-   * copied into `cwd`, a folder that exists (POST /api/sessions/[id]/fork
-   * `{ cwd }`), then opened. The draft goes along, as the refused prompt was
-   * given back to it. Resolves to an error to show, or null.
-   */
-  const forkIntoCwd = useCallback(async (cwd: string): Promise<string | null> => {
-    const sid = sessionIdRef.current;
-    if (!sid) return translate("sidebar.forkNotFound");
-    try {
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/fork`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd }),
-      });
-      const data = await res.json().catch(() => ({})) as { sessionId?: string; session?: SessionInfo; code?: string; error?: string };
-      if (!res.ok || !data.sessionId || !data.session) {
-        const { key, params } = forkFailureMessage(data.code, data.error ?? `HTTP ${res.status}`);
-        return translate(key, params);
-      }
-      const input = opts.chatInputRef?.current;
-      if (input) input.rekeyDraft(sid, data.sessionId);
-      else rekeyDraft(sid, data.sessionId);
-      onSessionForked?.(data.sessionId, data.session);
-      return null;
-    } catch (e) {
-      return translate("sidebar.forkFailed", { error: e instanceof Error ? e.message : String(e) });
-    }
-  }, [onSessionForked, opts.chatInputRef, translate]);
-  const canForkMissingCwd = Boolean(missingCwd) && !isNew && Boolean(session?.id)
-    && session?.relation?.kind !== "subagent" && session?.relation?.kind !== "side";
+  }, [addNotice, onSessionForked, translate]);
 
   const handleNavigate = useCallback(async (entryId: string): Promise<boolean> => {
     if (bashRunningRef.current) return false;
@@ -2705,7 +2683,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
    * Manual compaction (the Compact button and `/compact`). Never awaited by a
    * caller that holds the composer: the compact POST is blocking and lasts the
    * whole compaction, and `runBuiltinCommand` keeps the composer's fieldset
-   * disabled until the command resolves. The compaction reports itself — the
+   * disabled until the command resolves. The compaction reports itself 鈥?the
    * Compacting status, Stop compaction, the result banner and its error.
    */
   /** Resolves false when the compaction failed. */
@@ -3132,7 +3110,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     try {
       const result = await sendAgentCommand<RecalledPrompts>(sid, { type: "clear_queue" });
       // clearQueue also emits an empty queue_update, but that only reaches us
-      // while SSE is connected — clear locally so idle recalls update the UI.
+      // while SSE is connected 鈥?clear locally so idle recalls update the UI.
       setQueuedMessages({ steering: [], followUp: [] });
       restoreRecalledPrompts(result);
     } catch (e) {
@@ -3295,7 +3273,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [scrollToBottom]);
 
-  // What a session read with its state (`loadSession(…, includeState)`) says is
+  // What a session read with its state (`loadSession(鈥? includeState)`) says is
   // under way on the server: a run or command, a `!` command, a compaction. The
   // mount and a hidden page's return show it the same way.
   const applyLoadedAgentState = useCallback((sid: string, loadedAgentState: unknown) => {
@@ -3391,8 +3369,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       sessionIdRef.current = session.id;
       // Snapshot fast path: show the cached history window immediately, then
       // run the normal forced read in the background as the freshness check.
-      // Only the settled history fields are restored — no streaming, queue, or
-      // run state — and the background read remains authoritative.
+      // Only the settled history fields are restored 鈥?no streaming, queue, or
+      // run state 鈥?and the background read remains authoritative.
       const cached = getSessionViewSnapshot(session.id);
       if (cached) {
         setData({
@@ -3658,7 +3636,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, activeToolResults, toolClocks, entryIds, messageKeys, historyCursor, hasEarlierMessages, earlierTurnCount, streamingStore,
-    agentRunning, modelNames, modelList, modelError, missingCwd, canForkMissingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelError, missingCwd, modelScopeWarnings, isModelScopeActive, allModelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -3676,7 +3654,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
-    handleSend, handleAbort, startSideChat, handleFork, forkIntoCwd, handleNavigate, handleModelChange,
+    handleSend, handleAbort, startSideChat, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     dismissCompactError,
     handleRecallQueue,

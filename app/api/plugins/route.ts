@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { existsSync, readFileSync, statSync } from "fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { basename, dirname, extname, join, relative, sep } from "node:path";
 import {
   DefaultPackageManager,
@@ -41,6 +41,21 @@ function toPluginScope(scope: string): PluginScope {
 
 function keyFor(source: string, scope: PluginScope): string {
   return `${scope}\0${source}`;
+}
+
+/** Resolve pi's exact extension path overrides; a later matching entry wins. */
+function nativeExtensionEnabled(path: string, entries: string[]): boolean {
+  const normalize = (value: string) => value.replaceAll("\\", "/");
+  const target = normalize(path);
+  let enabled = true;
+  for (const entry of entries) {
+    const exact = entry.startsWith("+") || entry.startsWith("-");
+    const pattern = normalize(entry.replace(/^[+!-]/, ""));
+    if (exact ? pattern === target : pattern === target || target.endsWith(`/${pattern}`)) {
+      enabled = !entry.startsWith("-") && !entry.startsWith("!");
+    }
+  }
+  return enabled;
 }
 
 function getPackageSource(entry: PackageSource): string {
@@ -322,6 +337,61 @@ function collectResources(paths: ResolvedPaths): {
   return { countsByPackage, resourcesByPackage, standaloneExtensions, totals };
 }
 
+/**
+ * pi-rust installs native extensions as package directories under
+ * `~/.pi/agent/extensions`. The JS package resolver intentionally does not
+ * treat those `pi.native` manifests as JS resources, so include their actual
+ * installed executables in the management inventory separately.
+ */
+function collectNativeExtensions(agentDir: string, settingsManager: SettingsManager): PluginStandaloneExtensionInfo[] {
+  const extensionsDir = join(agentDir, "extensions");
+  let entries: string[];
+  try {
+    entries = readdirSync(extensionsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+
+  const extensions: PluginStandaloneExtensionInfo[] = [];
+  for (const entry of entries) {
+    const packageDir = join(extensionsDir, entry);
+    const manifestPath = join(packageDir, "package.json");
+    try {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+        name?: unknown;
+        description?: unknown;
+        pi?: { native?: unknown };
+      };
+      if (!Array.isArray(manifest.pi?.native)) continue;
+      const packageName = typeof manifest.name === "string" ? manifest.name : entry;
+      for (const [index, native] of manifest.pi.native.entries()) {
+        if (!native || typeof native !== "object" || typeof native.command !== "string") continue;
+        const command = native.command;
+        let executable = /^[a-z]:[\\/]/i.test(command) || command.startsWith("\\\\")
+          ? command
+          : join(packageDir, command);
+        if (process.platform === "win32" && !extname(executable)) executable += ".exe";
+        if (!existsSync(executable)) continue;
+        const suffix = packageName.split("/").at(-1) || entry;
+        extensions.push({
+          kind: "extension",
+          name: manifest.pi.native.length === 1 ? suffix : `${suffix} (${index + 1})`,
+          path: executable,
+          relativePath: entry,
+          scope: "global",
+          enabled: nativeExtensionEnabled(executable, settingsManager.getExtensionPaths()),
+          ...(typeof manifest.description === "string" ? { description: manifest.description } : {}),
+        });
+      }
+    } catch {
+      // Ignore unrelated or incomplete directories in the extensions folder.
+    }
+  }
+  return extensions;
+}
+
 async function readPlugins(cwd: string): Promise<PluginsResponse> {
   const agentDir = getAgentDir();
   const projectTrust = getProjectTrustStatus(cwd, agentDir);
@@ -357,6 +427,10 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
       message: error instanceof Error ? error.message : String(error),
     });
   }
+
+  const nativeExtensions = collectNativeExtensions(agentDir, settingsManager);
+  standaloneExtensions.push(...nativeExtensions);
+  totals.extensions += nativeExtensions.length;
 
   const packages = packageManager.listConfiguredPackages().map((pkg) => {
     const scope = toPluginScope(pkg.scope);
@@ -434,6 +508,7 @@ export async function POST(req: Request) {
     const body = await req.json() as {
       action?: PluginAction;
       source?: string;
+      path?: string;
       scope?: PluginScope;
       packages?: unknown;
       cwd?: string;
@@ -450,6 +525,23 @@ export async function POST(req: Request) {
     const settingsManager = SettingsManager.create(body.cwd, agentDir, {
       projectTrusted: projectTrust.trusted,
     });
+
+    if ((body.action === "enable" || body.action === "disable") && body.path !== undefined) {
+      const extensionPath = body.path;
+      const isInstalled = collectNativeExtensions(agentDir, settingsManager)
+        .some((extension) => extension.path === extensionPath);
+      if (!isInstalled) {
+        return NextResponse.json({ error: "Native extension is not installed" }, { status: 404 });
+      }
+      const current = settingsManager.getExtensionPaths();
+      const normalize = (value: string) => value.replaceAll("\\", "/");
+      const target = normalize(extensionPath);
+      const next = current.filter((entry) => normalize(entry.replace(/^[+!-]/, "")) !== target);
+      next.push(`${body.action === "disable" ? "-" : "+"}${extensionPath}`);
+      settingsManager.setExtensionPaths(next);
+      await settingsManager.flush();
+      return NextResponse.json(await readPlugins(body.cwd));
+    }
 
     if (body.packages !== undefined) {
       if (body.action !== "enable" && body.action !== "disable") {

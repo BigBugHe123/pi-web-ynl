@@ -30,6 +30,13 @@ export class AgentCommandError extends Error {
  */
 export const EXTENSION_REPORTED_CODE = "extension_reported";
 
+export function agentBackendUrl(path: string): string {
+  // Keep browser requests on the Pi Web origin. Next rewrites /api/v1/* to
+  // the loopback-only Rust backend, so LAN clients never try to reach their
+  // own 127.0.0.1 or require the backend to expose CORS to the network.
+  return path;
+}
+
 export function isPromptRejectedError(error: unknown): error is AgentCommandError {
   return error instanceof AgentCommandError
     && error.code === "prompt_rejected"
@@ -43,14 +50,18 @@ export function isPromptRejectedError(error: unknown): error is AgentCommandErro
  * in a large project), fetched again after every model call (#1302).
  */
 export function agentStatusUrl(sessionId: string): string {
-  return `/api/agent/${encodeURIComponent(sessionId)}?systemPrompt=0`;
+  return agentBackendUrl(`/api/v1/sessions/${encodeURIComponent(sessionId)}?systemPrompt=0`);
+}
+
+export function agentFullStateUrl(sessionId: string): string {
+  return agentBackendUrl(`/api/v1/sessions/${encodeURIComponent(sessionId)}`);
 }
 
 export async function sendAgentCommand<T = unknown>(
   sessionId: string,
   command: Record<string, unknown>,
 ): Promise<T> {
-  const res = await fetch(`/api/agent/${encodeURIComponent(sessionId)}`, {
+  const res = await fetch(agentBackendUrl(`/api/v1/sessions/${encodeURIComponent(sessionId)}/commands`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(command),

@@ -5,8 +5,8 @@ import type { ExtensionStatusItem, ExtensionWidgetItem } from "@/lib/types";
 import { AnsiText } from "./AnsiText";
 import { ExtensionWidgets } from "./ExtensionWidgets";
 
-export function sanitizeExtensionStatusText(text: string): string {
-  return text
+export function sanitizeExtensionStatusText(text: string | null | undefined): string {
+  return (typeof text === "string" ? text : "")
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .map((line) => line.replace(/\t/g, " ").replace(/ +/g, " ").trim())

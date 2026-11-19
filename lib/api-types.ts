@@ -852,6 +852,7 @@ export interface PluginStandaloneExtensionInfo extends PluginResourceInfo {
   kind: "extension";
   scope: PluginScope;
   enabled: boolean;
+  description?: string;
 }
 
 export type PluginUpdateState =

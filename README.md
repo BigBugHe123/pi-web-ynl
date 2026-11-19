@@ -25,7 +25,7 @@ Pi Web requires Node.js 22.19.0 or newer. Check your version with `node --versio
 npx @agegr/pi-web@latest
 ```
 
-The CLI opens a browser after the server is ready. If it does not, open [http://127.0.0.1:30141](http://127.0.0.1:30141). Pi Web listens only on `127.0.0.1` by default.
+The CLI opens a browser after the server is ready. If it does not, open [http://127.0.0.1:30141](http://127.0.0.1:30141) on this computer, or use this computer's LAN IP address on a phone connected to the same network. Pi Web listens on all network interfaces by default.
 
 If no model provider is configured yet, open the **Models** panel to sign in or add an API key.
 
@@ -56,7 +56,7 @@ For port and hostname, command-line options override the corresponding environme
 | --- | --- | --- |
 | `--help`, `-h` | Print startup options and exit | — |
 | `--port <port>`, `-p <port>`, or `PORT` | Server port | `30141` |
-| `--hostname <host>`, `-H <host>`, or `PI_WEB_HOSTNAME` | Bind hostname | `127.0.0.1` |
+| `--hostname <host>`, `-H <host>`, or `PI_WEB_HOSTNAME` | Bind hostname | `0.0.0.0` |
 | `--no-open` or `PI_WEB_NO_OPEN=1` | Do not open a browser automatically | Browser opens |
 | `PI_WEB_APP_NAME` | PWA manifest `name` and `short_name`; surrounding whitespace is trimmed, empty values use the default | `Pi Web` |
 | `PI_WEB_SKIP_VERSION_CHECK=1` | Disable Pi Web update checks | Unset |
@@ -129,7 +129,7 @@ npm install
 npm run dev
 ```
 
-The development server runs at [http://127.0.0.1:30141](http://127.0.0.1:30141). Run the common checks with:
+The development server runs at [http://127.0.0.1:30141](http://127.0.0.1:30141) on this computer; on a phone, use this computer's LAN IP address with port `30141`. Run the common checks with:
 
 ```bash
 npm test

@@ -1,12 +1,21 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { AnsiText } from "@/components/AnsiText";
 import type { ExtensionWidgetItem } from "@/lib/types";
 
 export const DEFAULT_EXPANDED_WIDGET_LINES = 3;
 export const WIDGET_UPDATE_IDLE_MS = 1100;
+
+function isExtensionWidgetItem(value: unknown): value is ExtensionWidgetItem {
+  if (!value || typeof value !== "object") return false;
+  const widget = value as Partial<ExtensionWidgetItem>;
+  return typeof widget.key === "string"
+    && Array.isArray(widget.lines)
+    && widget.lines.every((line) => typeof line === "string")
+    && (widget.placement === "aboveEditor" || widget.placement === "belowEditor");
+}
 
 export function formatExtensionWidgetContent(lines: string[]): string {
   return lines.join("\n");
@@ -52,18 +61,22 @@ export function getNextExpandedWidgetKey(
  */
 export function ExtensionWidgets({ widgets, children }: { widgets: ExtensionWidgetItem[]; children?: ReactNode }) {
   const { t } = useI18n();
+  const validWidgets = useMemo(
+    () => Array.isArray(widgets) ? widgets.filter(isExtensionWidgetItem) : [],
+    [widgets],
+  );
   const idPrefix = useId();
   const previousContentsRef = useRef<Map<string, string[]> | null>(null);
   const updateClearTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [expandedWidgetKey, setExpandedWidgetKey] = useState<string | null>(
-    () => getDefaultExpandedWidgetKey(widgets),
+    () => getDefaultExpandedWidgetKey(validWidgets),
   );
   const [updatingWidgetKeys, setUpdatingWidgetKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
 
   useEffect(() => {
-    const nextContents = snapshotExtensionWidgetContents(widgets);
+    const nextContents = snapshotExtensionWidgetContents(validWidgets);
     const updatedKeys = getUpdatedExtensionWidgetKeys(
       previousContentsRef.current,
       nextContents,
@@ -99,16 +112,16 @@ export function ExtensionWidgets({ widgets, children }: { widgets: ExtensionWidg
         });
       }, WIDGET_UPDATE_IDLE_MS));
     }
-  }, [widgets]);
+  }, [validWidgets]);
 
   useEffect(() => () => {
     for (const timer of updateClearTimersRef.current.values()) clearTimeout(timer);
     updateClearTimersRef.current.clear();
   }, []);
 
-  if (widgets.length === 0) return null;
+  if (validWidgets.length === 0) return null;
 
-  const expandedWidget = widgets.find((widget) => (
+  const expandedWidget = validWidgets.find((widget) => (
     widget.key === expandedWidgetKey
     && widget.lines.length > 0
   ));
@@ -123,7 +136,7 @@ export function ExtensionWidgets({ widgets, children }: { widgets: ExtensionWidg
         <div className="extension-widget-panels">
           {(() => {
             const widget = expandedWidget;
-            const index = widgets.indexOf(widget);
+            const index = validWidgets.indexOf(widget);
             const triggerId = `${idPrefix}-trigger-${index}`;
             const panelId = `${idPrefix}-panel-${index}`;
             return (
@@ -144,7 +157,7 @@ export function ExtensionWidgets({ widgets, children }: { widgets: ExtensionWidg
       )}
       <div className="extension-status-row">
         <div className="extension-widget-triggers" aria-label={t("chat.extensionWidgets")}>
-          {widgets.map((widget, index) => {
+          {validWidgets.map((widget, index) => {
             const expandable = widget.lines.length > 0;
             const expanded = expandable && widget.key === expandedWidget?.key;
             const updating = updatingWidgetKeys.has(widget.key);

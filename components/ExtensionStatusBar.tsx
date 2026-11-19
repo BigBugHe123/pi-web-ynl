@@ -20,8 +20,8 @@ export function extensionStatusCommand(key: string): string | null {
   return command.length > 1 && command.startsWith("/") ? command : null;
 }
 
-export function sanitizeExtensionStatusText(text: string): string {
-  return text
+export function sanitizeExtensionStatusText(text: string | null | undefined): string {
+  return (typeof text === "string" ? text : "")
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .map((line) => line.replace(/\t/g, " ").replace(/ +/g, " ").trim())

@@ -44,7 +44,7 @@ import type { DebugClientSession } from "@/lib/debug-types";
 import { getInitialNavigation, linkedSessionId, withTabOpen } from "@/lib/initial-navigation";
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
 import { mergeCatalogRow } from "./session-catalog-helpers";
-import { clearDraft, getDraft, parkedNewSessionDraftKey, rekeyDraft } from "@/lib/draft-store";
+import { getDraft, parkedNewSessionDraftKey, rekeyDraft } from "@/lib/draft-store";
 import {
   contextForCwd,
   type NewSessionContext,
@@ -1260,15 +1260,7 @@ export function AppShell() {
     if (toolEndRefreshTimerRef.current) clearTimeout(toolEndRefreshTimerRef.current);
   }, []);
 
-  const handleSessionForked = useCallback((newSessionId: string, session?: SessionInfo) => {
-    if (session) {
-      // A fork into another folder is another project's session: opened as a
-      // pick from the list, so the shell adopts its project before the sidebar
-      // reports the new cwd (which would otherwise close it as stale).
-      setRefreshKey((k) => k + 1);
-      handleSelectSession(session);
-      return;
-    }
+  const handleSessionForked = useCallback((newSessionId: string) => {
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
     setRefreshKey((k) => k + 1);
@@ -1281,7 +1273,7 @@ export function AppShell() {
     }));
     hydrateSelectedSession(newSessionId);
     router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
-  }, [handleSelectSession, invalidateWorkspaceRestore, router, hydrateSelectedSession]);
+  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
 
   // The sidebar calls this when the initial session is not in its list.
   const handleInitialRestoreDone = useCallback(() => {
@@ -1486,7 +1478,6 @@ export function AppShell() {
   const handleDeleteSideChat = useCallback(async (sessionId: string, root: SessionInfo): Promise<string | null> => {
     const result = await deleteSideChat(sessionId);
     if (result) return result.error;
-    clearDraft(sessionId);
     handleCloseFileTab(`agent:${sessionId}`);
     if (selectedSessionRef.current?.id === sessionId) {
       handleSelectSession(root);
@@ -3125,9 +3116,9 @@ export function AppShell() {
               quoteSelectionEnabled={quoteSelectionEnabled}
               onOpenFile={handleOpenLinkedFile}
               onOpenSubagent={handleOpenSubagentTab}
-              onSessionForked={(newSessionId, session) => {
+              onSessionForked={(newSessionId) => {
                 if (isMobile) setRightPanelOpen(false);
-                handleSessionForked(newSessionId, session);
+                handleSessionForked(newSessionId);
               }}
               onOpenSettings={openSettingsSection}
               onToolEnd={handleToolEnd}

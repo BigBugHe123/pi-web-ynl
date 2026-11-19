@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { jsonResponse } from "@/lib/json-response";
 import {
   attachSessionProjectInfo,
   getSessionListVersion,
@@ -37,7 +38,8 @@ export async function GET(req: Request) {
     ]);
     perf?.span("scan+projects");
     const sessions = withSubagentDisplayStatus(mergeSessionLists(persistedSessions, runtimeSessions));
-    return perf?.attach(NextResponse.json(
+    return perf?.attach(jsonResponse(
+      req,
       {
         sessions,
         sessionListVersion,
@@ -46,7 +48,8 @@ export async function GET(req: Request) {
         completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
       },
       { headers: { "Cache-Control": "no-store" } },
-    )) ?? NextResponse.json(
+    )) ?? jsonResponse(
+      req,
       {
         sessions,
         sessionListVersion,

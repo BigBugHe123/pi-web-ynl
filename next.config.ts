@@ -5,6 +5,9 @@ import { fileURLToPath } from "url";
 
 const configDir = dirname(fileURLToPath(import.meta.url));
 const { version } = JSON.parse(readFileSync(join(configDir, "package.json"), "utf8")) as { version: string };
+const rustBackend = process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
 let piVersion = "unknown";
 try {
   const piPkgPath = join(configDir, "node_modules/@earendil-works/pi-coding-agent/package.json");

@@ -67,19 +67,6 @@ export function toTerminalKeyData(event: TerminalKeyEventLike): string | null {
   return SPECIAL_KEY_SEQUENCES[event.key] ?? null;
 }
 
-const PASTE_START = "\x1b[200~";
-const PASTE_END = "\x1b[201~";
-
-/**
- * Wraps pasted text in bracketed-paste markers. pi-tui ends a paste at the first
- * end marker and reads what follows as typed input, so markers inside the text
- * are removed, until none is left: removing one can join the text around it
- * into another.
- */
 export function asBracketedPaste(text: string): string {
-  let content = text;
-  while (content.includes(PASTE_START) || content.includes(PASTE_END)) {
-    content = content.split(PASTE_START).join("").split(PASTE_END).join("");
-  }
-  return `${PASTE_START}${content}${PASTE_END}`;
+  return `\x1b[200~${text}\x1b[201~`;
 }

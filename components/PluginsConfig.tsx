@@ -531,7 +531,13 @@ function PackageDetail({
   );
 }
 
-function StandaloneExtensionDetail({ extension }: { extension: PluginStandaloneExtensionInfo }) {
+function StandaloneExtensionDetail({ extension, busy, actionError, actionMessage, onToggle }: {
+  extension: PluginStandaloneExtensionInfo;
+  busy: boolean;
+  actionError: string | null;
+  actionMessage: string | null;
+  onToggle: (enabled: boolean) => void;
+}) {
   const { t } = useI18n();
   const status = extension.enabled ? "loaded" : "disabled";
 
@@ -542,8 +548,23 @@ function StandaloneExtensionDetail({ extension }: { extension: PluginStandaloneE
           <ConfigScopeTag scope={extension.scope}>{scopeLabel(extension.scope, t)}</ConfigScopeTag>
           <ConfigDetailTitle>{extension.name}</ConfigDetailTitle>
         </ConfigDetailHeaderInfo>
+        <ConfigDetailActions>
+          <ConfigSwitch
+            checked={extension.enabled}
+            loading={busy}
+            onChange={() => onToggle(!extension.enabled)}
+            label={extension.enabled ? t("i18n.disablePackage") : t("i18n.enablePackage")}
+          />
+        </ConfigDetailActions>
       </ConfigDetailHeader>
+      {extension.description && (
+        <div style={{ fontSize: 13, lineHeight: 1.5, color: "var(--text-dim)" }}>
+          {extension.description}
+        </div>
+      )}
       <ConfigDetailGrid>
+        {actionError && <ConfigDetailGridRow label={t("i18n.error")} tone="plain">{actionError}</ConfigDetailGridRow>}
+        {actionMessage && <ConfigDetailGridRow label={t("i18n.status")} tone="plain">{actionMessage}</ConfigDetailGridRow>}
         <ConfigDetailGridRow
           label={t("i18n.status")}
           tone="plain"
@@ -775,6 +796,30 @@ export function PluginsConfig({
       setBusyKey(null);
     }
   }, [cwd, t]);
+
+  const toggleStandaloneExtension = useCallback(async (extension: PluginStandaloneExtensionInfo, enabled: boolean) => {
+    const action = enabled ? "enable" : "disable";
+    setBusyKey(`${action}:${extensionKey(extension)}`);
+    setActionError(null);
+    setActionMessage(null);
+    setGroupStatus(null);
+    try {
+      const res = await fetch("/api/plugins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, path: extension.path, cwd }),
+      });
+      const next = (await res.json()) as PluginsResponse & { error?: string };
+      if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
+      setData(next);
+      const message = `${extension.name} ${enabled ? t("i18n.packageEnabled") : t("i18n.packageDisabled")}`;
+      setActionMessage(sessionId ? `${message} ${t("agents.reloadRequired")}` : message);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyKey(null);
+    }
+  }, [cwd, sessionId, t]);
 
   // Behaves like the package switch, for every package of one scope: the
   // confirmation appears in the package detail and the session is reloaded by
@@ -1015,7 +1060,13 @@ export function PluginsConfig({
                 onInstall={installPlugin}
               />
             ) : loading ? null : selectedExtension ? (
-              <StandaloneExtensionDetail extension={selectedExtension} />
+              <StandaloneExtensionDetail
+                extension={selectedExtension}
+                busy={busyKey === `enable:${extensionKey(selectedExtension)}` || busyKey === `disable:${extensionKey(selectedExtension)}`}
+                actionError={actionError}
+                actionMessage={actionMessage}
+                onToggle={(enabled) => void toggleStandaloneExtension(selectedExtension, enabled)}
+              />
             ) : selectedPackage ? (
               <PackageDetail
                 key={packageKey(selectedPackage)}

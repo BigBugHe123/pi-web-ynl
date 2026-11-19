@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { countRunningSubagents, sideChatTitle } from "@/lib/session-family";
-import { MAX_SESSION_STATS_IDS, type SessionUsageSummary } from "@/lib/session-stats";
+import type { SessionUsageSummary } from "@/lib/session-stats";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { SessionInfo, SubagentSessionStatus } from "@/lib/types";
 import { DeleteConfirm } from "./SessionTree";
@@ -28,34 +28,6 @@ interface Props {
 const STATS_POLL_MS = 3000;
 
 /**
- * Every id's usage, read in batches the stats route accepts (#1728): a family
- * past MAX_SESSION_STATS_IDS sent in one request got a 400 and every row lost
- * its numbers. Batches go one after another; null when any of them fails, so
- * rows keep their last numbers rather than half the family dropping out.
- */
-export async function fetchAgentUsage(
-  ids: readonly string[],
-  signal?: AbortSignal,
-  fetchImpl: typeof fetch = fetch,
-): Promise<Record<string, SessionUsageSummary> | null> {
-  const stats: Record<string, SessionUsageSummary> = {};
-  for (let start = 0; start < ids.length; start += MAX_SESSION_STATS_IDS) {
-    const res = await fetchImpl("/api/sessions/stats", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: ids.slice(start, start + MAX_SESSION_STATS_IDS) }),
-      signal,
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as { stats?: Record<string, SessionUsageSummary> };
-    if (!data.stats) return null;
-    Object.assign(stats, data.stats);
-  }
-  return stats;
-}
-
-/**
  * Usage of every agent in the family, as the toolbar's stats popover counts
  * it. Read on open and whenever a run starts or ends; polled while one runs,
  * on a visible page, one request at a time.
@@ -72,8 +44,16 @@ function useAgentUsage(ids: readonly string[], runningKey: string): Record<strin
       if (inFlight) return;
       inFlight = true;
       try {
-        const stats = await fetchAgentUsage(requested, controller.signal);
-        if (!controller.signal.aborted && stats) setUsage(stats);
+        const res = await fetch("/api/sessions/stats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: requested }),
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const data = await res.json() as { stats?: Record<string, SessionUsageSummary> };
+        if (!controller.signal.aborted && data.stats) setUsage(data.stats);
       } catch {
         /* best-effort: rows keep their last numbers */
       } finally {
@@ -139,13 +119,10 @@ export function sessionTitle(session: SessionInfo): string {
   return session.name || session.firstMessage || session.id.slice(0, 12);
 }
 
-/**
- * A subagent row's first line: the session's name, which a spawn sets to the task's description
- * and a resume with a new description renames (#1735), else that first description.
- */
+/** A subagent row's first line: the task it was given, else the session's title. */
 export function subagentTitle(session: SessionInfo): string {
   const relation = session.relation?.kind === "subagent" ? session.relation : null;
-  return session.name || relation?.description || sessionTitle(session);
+  return relation?.description || sessionTitle(session);
 }
 
 /** A row's icon: a person for the main agent, a bubble for a side chat, a robot for a subagent. */
@@ -587,7 +564,7 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
                   onToggleSubagentTab(session.id, t("sideChat.title"), true);
                   return;
                 }
-                onToggleSubagentTab(session.id, session.name || relation?.description || relation?.profile || sessionTitle(session));
+                onToggleSubagentTab(session.id, relation?.description || relation?.profile || sessionTitle(session));
               }}
               onDelete={session.relation?.kind === "side" ? () => setConfirmDeleteSideChatId(session.id) : undefined}
               confirming={confirmDeleteSideChatId === session.id}

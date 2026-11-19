@@ -13,7 +13,7 @@ services:
       PI_WEB_ALLOWED_HOSTS: ${PI_WEB_ALLOWED_HOSTS:-}
       PI_WEB_SKIP_VERSION_CHECK: "1"
     ports:
-      - "127.0.0.1:${PI_WEB_PORT:-30141}:30141"
+      - "${PI_WEB_PORT:-30141}:30141"
     volumes:
       - pi-agent-data:/home/node/.pi/agent
       - pi-cwd-data:/home/node/pi-cwd

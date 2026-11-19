@@ -18,10 +18,19 @@ export const dynamic = "force-dynamic";
 // serverNow: this server's clock, which stamps reads (`readAt`); a browser
 // dates its unread markers on it (lib/unread-markers.ts), never on its own.
 export async function GET() {
+  const rustBackend = process.env.PI_RUST_BACKEND_URL
+    ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+    ?? "http://127.0.0.1:3030";
+  const rustRunning = await fetch(`${rustBackend.replace(/\/$/, "")}/api/v1/sessions/running`, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(1_000),
+  })
+    .then((response) => response.ok ? response.json() as Promise<{ runningSessionIds?: string[] }> : null)
+    .catch(() => null);
   return NextResponse.json(
     {
       sessionListVersion: getSessionListVersion(),
-      runningSessionIds: getRunningRpcSessionIds(),
+      runningSessionIds: [...new Set([...getRunningRpcSessionIds(), ...(rustRunning?.runningSessionIds ?? [])])],
       awaitingInputSessionIds: getAwaitingInputRpcSessionIds(),
       completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
       subagentsActiveSessionIds: getSessionIdsWithUnsettledSubagentRuns(),
