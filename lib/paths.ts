@@ -12,12 +12,11 @@ import { dirname, join, normalize, parse, relative, resolve, sep } from "path";
 //                   cwds in, so it is the default for user-facing paths.
 //
 //   toSlashPath()   Forward slashes (`D:/repo`). Use only for internal,
-//                   never-displayed bookkeeping — the allowed-roots set, and
-//                   separator-insensitive text matching. Containment checks
-//                   re-normalize their inputs anyway (see path-security.ts),
-//                   so this form is about consistent keys, not correctness.
+//                   never-displayed bookkeeping and separator-insensitive
+//                   text matching. This form keeps keys consistent across
+//                   Git and operating-system path spellings.
 //
-// Comparison always goes through samePath()/isPathWithinRoots(), never `===`:
+// Comparison always goes through samePath(), never `===`:
 // git emits POSIX-style paths even on Windows, and Windows itself is
 // case-insensitive, so raw string equality silently fails on both counts.
 // ============================================================================

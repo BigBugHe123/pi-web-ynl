@@ -45,7 +45,7 @@ async function fetchLatestVersion() {
 }
 
 // npm's own CLI script run through this node, so no shell is needed on
-// Windows (same lookup as lib/node-cli.ts). null: no way to run npm safely.
+// Windows. null: no way to run npm safely.
 function findNpmInvocation(args, nodeDir = path.dirname(process.execPath), platform = process.platform, exists = fs.existsSync) {
   for (const script of [
     path.join(nodeDir, "node_modules", "npm", "bin", "npm-cli.js"),

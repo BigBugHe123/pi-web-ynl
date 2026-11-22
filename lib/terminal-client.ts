@@ -46,3 +46,7 @@ export function createTerminalWriter(id: string, onError: (error: Error) => void
     stop() { stopped = true; bufferedInput = null; return pending; },
   };
 }
+export type TerminalEvent =
+  | { type: "output"; data: string; offset: number; reset?: boolean }
+  | { type: "exit"; exitCode: number }
+  | { type: "closed" };

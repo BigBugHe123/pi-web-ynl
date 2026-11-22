@@ -1,11 +1,8 @@
-import type { McpOverrideKey } from "./api-types";
+﻿import type { McpOverrideKey } from "./api-types";
 
 // Project overrides of global MCP servers (pi 1.0.1): a project `.pi/mcp.json`
 // entry without `command`, `url` or `type` changes only `enabled`, `exposure`
-// and `toolExposure` of the global server of its name. The rules of the SDK's
-// `loadMcpConfig()` and `updateMcpServerConfig()`, for the listing
-// (`lib/mcp-config-read.ts`), the writer (`lib/mcp-config-file.ts`) and the
-// MCP host (`lib/mcp-host.ts`), which may not import the listing.
+// and `toolExposure` of the global server of its name. The rules are shared by the listing and writer; Rust consumes the same config through the backend API.
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

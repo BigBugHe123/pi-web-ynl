@@ -1,4 +1,4 @@
-// Who owns `/mcp`, decided the same way on the server and in the browser.
+﻿// Who owns `/mcp`, decided the same way on the server and in the browser.
 //
 // The SDK loads pi's built-in MCP extension under the extension path
 // `builtin:mcp`, and every command and tool it registers carries that path as
@@ -6,14 +6,11 @@
 // third-party extension that registers `/mcp` replaces the built-in one
 // outright (the SDK drops a replaceable built-in that shares a command name),
 // so the two never appear side by side. When several extensions register
-// `/mcp`, pi names them `mcp:1`, `mcp:2`, … and none answers `/mcp` any more:
+// `/mcp`, pi names them `mcp:1`, `mcp:2`, 鈥?and none answers `/mcp` any more:
 // pi looks a command up by that exact name, so a bare `/mcp` then runs no
 // handler and reaches the model as text.
 //
-// The MCP host (`lib/mcp-host.ts`) stays inactive unless `/mcp` is the built-in
-// one, the read-only policy (`lib/mcp-read-only-policy.ts`) recognises the
-// built-in's tools by the path, and the composer opens Settings › MCP for a
-// bare `/mcp` (ADR 0006). This module has no imports, so the browser can load it.
+// Rust owns MCP connections and tool policy. The composer opens Settings MCP for a bare `/mcp` (ADR 0006). This module has no imports, so the browser can load it.
 
 /** The `sourceInfo.path` of everything pi's built-in MCP extension registers. */
 export const MCP_EXTENSION_PATH = "builtin:mcp";
@@ -73,7 +70,7 @@ export function isBareMcpCommand(message: string): boolean {
 }
 
 /**
- * Whether a bare `/mcp` opens Settings › MCP instead of being sent, given the
+ * Whether a bare `/mcp` opens Settings 鈥?MCP instead of being sent, given the
  * session's command list: when its `/mcp` is the built-in one, or when nothing
  * answers to `/mcp` at all (MCP turned off, `-builtin:mcp`, a Chat-only
  * session, or several extensions' `mcp:1`, `mcp:2`, which pi never runs for a

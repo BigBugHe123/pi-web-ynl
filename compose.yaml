@@ -4,12 +4,16 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       PORT: "30141"
       PI_WEB_HOSTNAME: 0.0.0.0
       PI_WEB_NO_OPEN: "1"
       PI_CODING_AGENT_DIR: /home/node/.pi/agent
       PI_WEB_PASSWORD: ${PI_WEB_PASSWORD:?Set PI_WEB_PASSWORD in .env}
+      PI_RUST_BACKEND_URL: ${PI_RUST_BACKEND_URL:-http://host.docker.internal:3030}
+      PI_RUST_BACKEND_SAME_HOST: ${PI_RUST_BACKEND_SAME_HOST:-}
       PI_WEB_ALLOWED_HOSTS: ${PI_WEB_ALLOWED_HOSTS:-}
       PI_WEB_SKIP_VERSION_CHECK: "1"
     ports:

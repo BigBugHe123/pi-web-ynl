@@ -1,99 +1,36 @@
 import { NextResponse } from "next/server";
-import { resolveSessionPath } from "@/lib/session-reader";
-import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
-import { cwdMissingBody, missingCwdFromBody } from "@/lib/missing-cwd";
 import { EXTENSION_REPORTED_CODE } from "@/lib/agent-client";
+import { cwdMissingBody, missingCwdFromBody } from "@/lib/missing-cwd";
 
-// POST /api/agent/[id] - Send a command to an existing session
-export async function POST(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+const backend = process.env.PI_RUST_BACKEND_URL ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL ?? "http://127.0.0.1:3030";
+
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  let commandType: string | undefined;
-  let promptAccepted = false;
-
+  let type: string | undefined;
   try {
-    const body = await req.json() as { type: string; [key: string]: unknown };
-    commandType = typeof body.type === "string" ? body.type : undefined;
-    const requestedToolNames = body.toolNames;
-    if (
-      requestedToolNames !== undefined
-      && (!Array.isArray(requestedToolNames) || requestedToolNames.some((name) => typeof name !== "string"))
-    ) {
-      throw new Error("toolNames must be an array of strings");
-    }
-    const toolNames = requestedToolNames as string[] | undefined;
-
-    // Fast path: already-running session
-    const existing = getRpcSession(id);
-    if (body.type === "set_tools") {
-      const filePath = existing?.sessionFile || await resolveSessionPath(id) || undefined;
-      if (!existing?.isAlive() && !filePath) {
-        return NextResponse.json({ error: "Session not found" }, { status: 404 });
-      }
-      const changed = await setRpcSessionTools(id, filePath, toolNames);
-      return NextResponse.json({
-        success: true,
-        data: { sessionId: changed.sessionId, recreated: changed.recreated },
-      });
-    }
-    if (existing?.isAlive()) {
-      const result = await existing.send(body);
-      promptAccepted = body.type === "prompt";
-      return NextResponse.json({ success: true, data: result });
-    }
-
-    const filePath = await resolveSessionPath(id);
-    if (!filePath) {
-      return NextResponse.json({
-        error: "Session not found",
-        ...(body.type === "prompt"
-          ? { code: "prompt_rejected", accepted: false }
-          : {}),
-      }, { status: 404 });
-    }
-
-    const { session } = await startRpcSession(id, filePath, undefined, {
-      ...(toolNames !== undefined ? { toolNames } : {}),
+    const command = await req.json() as Record<string, unknown>;
+    type = typeof command.type === "string" ? command.type : undefined;
+    const response = await fetch(new URL(`/api/v1/sessions/${encodeURIComponent(id)}/commands`, backend), {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command), cache: "no-store", signal: req.signal,
     });
-    const result = await session.send(body);
-    promptAccepted = body.type === "prompt";
-
-    return NextResponse.json({ success: true, data: result });
+    const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+    if (!response.ok || body.error) {
+      const missingCwd = missingCwdFromBody(body);
+      return NextResponse.json({ ...body, ...(missingCwd ? cwdMissingBody(missingCwd) : {}), ...(type === "prompt" ? { code: "prompt_rejected", accepted: false } : {}), ...(body.code === EXTENSION_REPORTED_CODE ? { code: EXTENSION_REPORTED_CODE } : {}) }, { status: response.status });
+    }
+    return NextResponse.json(body);
   } catch (error) {
-    // Read by its fields: the wrapper that threw may come from another route's bundle.
-    const missingCwd = missingCwdFromBody(error);
-    const status = (error as { status?: number })?.status;
-    return NextResponse.json({
-      error: error instanceof Error ? error.message : String(error),
-      ...(missingCwd ? cwdMissingBody(missingCwd) : {}),
-      ...((error as { code?: unknown } | null)?.code === EXTENSION_REPORTED_CODE ? { code: EXTENSION_REPORTED_CODE } : {}),
-      ...(commandType === "prompt" && !promptAccepted
-        ? { code: "prompt_rejected", accepted: false }
-        : {}),
-    }, { status: status === 404 ? status : 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error), ...(type === "prompt" ? { code: "prompt_rejected", accepted: false } : {}) }, { status: 502 });
   }
 }
 
-// GET /api/agent/[id] - Get current agent state
-export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-
   try {
-    const session = getRpcSession(id);
-    if (!session || !session.isAlive()) {
-      return NextResponse.json({ running: false });
-    }
-
-    const state = await session.send({ type: "get_state" }) as Record<string, unknown>;
-    // Status reads leave out the system prompt, most of the reply (agentStatusUrl()).
-    if (new URL(req.url).searchParams.get("systemPrompt") === "0") delete state.systemPrompt;
-    return NextResponse.json({ running: true, state });
+    const url = new URL(`/api/v1/sessions/${encodeURIComponent(id)}${new URL(req.url).search}`, backend);
+    const response = await fetch(url, { cache: "no-store", signal: req.signal });
+    return new Response(response.body, { status: response.status, headers: response.headers });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
   }
 }

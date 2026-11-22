@@ -1,22 +1,26 @@
+import { NextResponse } from "next/server";
 import { invalidateModelsCache } from "@/lib/models-cache";
-import { removeStoredCredentialIfType } from "@/lib/provider-credential-store";
-import { getModelRuntimeWithExtensions } from "@/lib/model-runtime";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(
-  _req: Request,
-  { params }: { params: Promise<{ provider: string }> }
-) {
+const backend = process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
+
+export async function POST(request: Request, { params }: { params: Promise<{ provider: string }> }) {
   const { provider } = await params;
-  const modelRuntime = await getModelRuntimeWithExtensions();
-  if (!modelRuntime.getProvider(provider)?.auth.oauth) {
-    return Response.json({ error: `Unknown provider: ${provider}` }, { status: 400 });
+  try {
+    const response = await fetch(new URL(`/api/v1/auth/credentials/${encodeURIComponent(provider)}/oauth`, backend), {
+      method: "POST",
+      cache: "no-store",
+      signal: request.signal,
+    });
+    if (response.ok) await invalidateModelsCache();
+    return new Response(response.body, {
+      status: response.status,
+      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
-  const removal = await removeStoredCredentialIfType(provider, "oauth");
-  if (removal.status === "type_mismatch") {
-    return Response.json({ error: `${provider} is authenticated with an API key, not OAuth` }, { status: 409 });
-  }
-  invalidateModelsCache();
-  return Response.json({ ok: true });
 }

@@ -1,4 +1,4 @@
-import type { McpServerConfig } from "@earendil-works/pi-coding-agent";
+import type { McpServerConfig } from "./mcp-types";
 import { parseJsonc } from "./jsonc";
 import { readCommandLine } from "./mcp-import-cli";
 import {
@@ -29,9 +29,8 @@ import { splitShellWords, type ShellWordsError } from "./shell-words";
  * The paste box of Settings › MCP (ADR 0006): turns a URL, a command line,
  * `pi | claude | codex | gemini mcp add …`, Claude / Cursor / VS Code / Zed /
  * opencode JSON, or a Cursor or VS Code install link into pi `mcp.json`
- * entries. Pure, so the browser preview and the server's re-parse agree; the
- * server still validates the filled-in result with the SDK's
- * `validateMcpServerConfig` before writing.
+ * entries. Pure, so the browser can preview the result without I/O; the Rust
+ * action API validates the structured, filled-in candidate before writing.
  *
  * Safety rules every format follows:
  * - A fresh pi object is built from known keys only; every dropped key gets
@@ -184,7 +183,8 @@ function noteFinishedConfig(server: McpImportServer): void {
  * Parses pasted text into pi MCP server entries. `ok: false` means nothing
  * could be imported; `ok: true` may still carry top-level notes about entries
  * that were skipped (each names its `server`). Never throws, whatever the
- * text: the server route re-runs it on the request body.
+ * text. The result is for the browser's preview; the action API receives only
+ * the selected structured candidate and validates it before writing.
  */
 export function parseMcpImport(text: string, options: McpImportOptions = {}): McpImportResult {
   const input = normalizePaste(text);

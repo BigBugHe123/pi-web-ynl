@@ -1,64 +1,27 @@
 import { NextResponse } from "next/server";
-import { existsSync, readFileSync, writeFileSync } from "fs";
-import { homedir } from "os";
-import path from "path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { SkillToggleResult } from "@/lib/api-types";
-import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
-import { setDisableModelInvocation } from "@/lib/skill-frontmatter";
-import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/skills?cwd=<path>
-// Uses DefaultResourceLoader (same logic as AgentSession startup) so settings.json
-// skill paths, package skills, and .agents/skills directories are all included.
+// The Rust resource loader validates workspace access and reads skill resources.
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const cwd = searchParams.get("cwd");
   if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
-
   try {
-    const allowedRoots = await getAllowedFileRoots();
-    if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
-    return NextResponse.json(await loadSkillsWithInstallInfo(cwd));
+    const backend = process.env.PI_RUST_BACKEND_URL
+      ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+      ?? "http://127.0.0.1:3030";
+    const target = new URL("/api/v1/skills", backend);
+    target.searchParams.set("cwd", cwd);
+    const response = await fetch(target, { cache: "no-store", signal: req.signal });
+    return new Response(response.body, {
+      status: response.status,
+      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
+    });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502 });
   }
-}
-
-async function getSkillEditRoots(): Promise<Set<string>> {
-  const allowedRoots = new Set(await getAllowedFileRoots());
-  allowedRoots.add(getAgentDir());
-  // Globally installed skills live in ~/.agents/skills and are symlinked into
-  // the agent's skills dir; isExistingFilePathAllowed resolves the symlink, so
-  // the real target sits outside getAgentDir(). Allow the global skills root
-  // too (the SDK always treats ~/.agents/skills as trusted).
-  const globalSkillsDir = path.join(homedir(), ".agents", "skills");
-  if (existsSync(globalSkillsDir)) allowedRoots.add(globalSkillsDir);
-  return allowedRoots;
-}
-
-/** Edits one SKILL.md, or returns the status and message that refused it. */
-function toggleSkillFile(
-  filePath: string,
-  disableModelInvocation: boolean,
-  allowedRoots: Set<string>,
-): { status: number; error: string } | null {
-  // Skills are SKILL.md or *.md files. The allowed roots also hold settings,
-  // auth.json and project files, whose top a frontmatter edit would break.
-  if (path.extname(filePath).toLowerCase() !== ".md") return { status: 400, error: "Not a skill file" };
-  if (!existsSync(filePath)) return { status: 404, error: "file not found" };
-  if (!isExistingFilePathAllowed(filePath, allowedRoots)) {
-    return { status: 403, error: "Access denied" };
-  }
-  const content = readFileSync(filePath, "utf8");
-  const updated = setDisableModelInvocation(content, disableModelInvocation);
-  // A skill already in the requested state keeps its file and mtime.
-  if (updated !== content) writeFileSync(filePath, updated, "utf8");
-  return null;
 }
 
 // PATCH /api/skills — toggle disable-model-invocation on SKILL.md files.
@@ -73,33 +36,31 @@ export async function PATCH(req: Request) {
       filePaths?: unknown;
       disableModelInvocation: boolean;
     };
-    const { filePath, filePaths, disableModelInvocation } = body;
-
-    if (filePaths !== undefined) {
-      if (!Array.isArray(filePaths) || !filePaths.every((item) => typeof item === "string" && item)) {
-        return NextResponse.json({ error: "filePaths must be a list of paths" }, { status: 400 });
-      }
-      if (typeof disableModelInvocation !== "boolean") {
-        return NextResponse.json({ error: "disableModelInvocation must be a boolean" }, { status: 400 });
-      }
-      const allowedRoots = await getSkillEditRoots();
-      const results: SkillToggleResult[] = [];
-      for (const target of new Set(filePaths as string[])) {
-        try {
-          const refused = toggleSkillFile(target, disableModelInvocation, allowedRoots);
-          results.push(refused ? { filePath: target, error: refused.error } : { filePath: target });
-        } catch (e) {
-          results.push({ filePath: target, error: e instanceof Error ? e.message : String(e) });
-        }
-      }
-      return NextResponse.json({ results });
+    if (typeof body.disableModelInvocation !== "boolean") {
+      return NextResponse.json({ error: "disableModelInvocation must be a boolean" }, { status: 400 });
     }
-
-    if (!filePath) return NextResponse.json({ error: "filePath required" }, { status: 400 });
-    const refused = toggleSkillFile(filePath, disableModelInvocation, await getSkillEditRoots());
-    if (refused) return NextResponse.json({ error: refused.error }, { status: refused.status });
-    return NextResponse.json({ success: true });
+    if (body.filePaths !== undefined
+      && (!Array.isArray(body.filePaths) || !body.filePaths.every((item) => typeof item === "string" && item))) {
+      return NextResponse.json({ error: "filePaths must be a list of paths" }, { status: 400 });
+    }
+    if (body.filePaths === undefined && (typeof body.filePath !== "string" || !body.filePath)) {
+      return NextResponse.json({ error: "filePath required" }, { status: 400 });
+    }
+    const backend = process.env.PI_RUST_BACKEND_URL
+      ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+      ?? "http://127.0.0.1:3030";
+    const response = await fetch(new URL("/api/v1/skills", backend), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+      signal: req.signal,
+    });
+    return new Response(response.body, {
+      status: response.status,
+      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
+    });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502 });
   }
 }

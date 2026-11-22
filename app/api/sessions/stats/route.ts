@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import { getRpcSession } from "@/lib/rpc-manager";
-import { getSessionSettings, openSessionManager, resolveSessionPath } from "@/lib/session-reader";
-import { computeSessionStats, type SessionUsageSummary } from "@/lib/session-stats";
-import { computeSessionTotalActiveMs } from "@/lib/session-timing";
-import { sideOwnEntries } from "@/lib/side-session";
+import type { SessionUsageSummary } from "@/lib/session-stats";
 import { SESSION_ID_PATTERN } from "@/lib/session-ui-state-shared";
-import type { SessionEntry } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -19,48 +14,8 @@ export const dynamic = "force-dynamic";
 const MAX_SESSION_STATS_IDS = 200;
 const NO_STORE = { "Cache-Control": "no-store" };
 
-type SessionManagerLike = ReturnType<typeof openSessionManager>;
-
-interface CachedSummary {
-  entryCount: number;
-  lastEntryId: string | undefined;
-  leafId: string | null;
-  summary: SessionUsageSummary;
-}
-
-const summaries = new WeakMap<SessionManagerLike, CachedSummary>();
-
 function refusal(status: number, error: string) {
   return NextResponse.json({ error }, { status, headers: NO_STORE });
-}
-
-async function readSummary(id: string): Promise<SessionUsageSummary | null> {
-  const rpc = getRpcSession(id);
-  let sm: SessionManagerLike;
-  if (rpc?.isAlive()) {
-    sm = rpc.inner.sessionManager as SessionManagerLike;
-  } else {
-    const path = await resolveSessionPath(id);
-    if (!path) return null;
-    sm = openSessionManager(path);
-  }
-  const entries = sm.getEntries();
-  const lastEntryId = (entries[entries.length - 1] as { id?: string } | undefined)?.id;
-  const leafId = sm.getLeafId();
-  const cached = summaries.get(sm);
-  if (cached && cached.entryCount === entries.length && cached.lastEntryId === lastEntryId && cached.leafId === leafId) return cached.summary;
-
-  const ownEntries = sideOwnEntries(entries);
-  const stats = computeSessionStats(ownEntries as unknown as SessionEntry[]);
-  const summary: SessionUsageSummary = {
-    tokens: stats.tokens,
-    cost: stats.cost,
-    toolCalls: stats.toolCalls,
-    totalActiveMs: computeSessionTotalActiveMs(ownEntries as typeof entries),
-    ...getSessionSettings(entries as unknown as SessionEntry[], leafId),
-  };
-  summaries.set(sm, { entryCount: entries.length, lastEntryId, leafId, summary });
-  return summary;
 }
 
 // POST /api/sessions/stats - body { ids: string[] } (at most MAX_SESSION_STATS_IDS).
@@ -80,14 +35,20 @@ export async function POST(req: Request) {
   if (ids.length > MAX_SESSION_STATS_IDS) return refusal(400, `ids may hold at most ${MAX_SESSION_STATS_IDS} session ids`);
   if (!ids.every((id) => typeof id === "string" && SESSION_ID_PATTERN.test(id))) return refusal(400, "ids must be session ids");
 
-  const stats: Record<string, SessionUsageSummary> = {};
-  for (const id of new Set(ids as string[])) {
-    try {
-      const summary = await readSummary(id);
-      if (summary) stats[id] = summary;
-    } catch {
-      // Malformed or concurrently removed session: leave it out.
+  try {
+    const backend = process.env.PI_RUST_BACKEND_URL ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL ?? "http://127.0.0.1:3030";
+    const response = await fetch(new URL("/api/v1/sessions/stats", backend), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids }),
+      signal: req.signal,
+    });
+    const result = await response.json() as { success?: boolean; data?: { stats?: Record<string, SessionUsageSummary> }; error?: string };
+    if (!response.ok || result.error || !result.data?.stats) {
+      return refusal(response.status || 502, result.error ?? `Rust backend returned HTTP ${response.status}`);
     }
+    return NextResponse.json({ stats: result.data.stats }, { headers: NO_STORE });
+  } catch (error) {
+    return refusal(502, error instanceof Error ? error.message : String(error));
   }
-  return NextResponse.json({ stats }, { headers: NO_STORE });
 }

@@ -1,29 +1,35 @@
-import { shareModelCatalogRefresh } from "@/lib/model-catalog-refresh";
+import { NextResponse } from "next/server";
+import { invalidateModelsCache } from "@/lib/models-cache";
 
 export const dynamic = "force-dynamic";
 
-/**
- * POST /api/models/refresh — fetch the remote provider catalogs now.
- *
- * Body: `{ provider?: string }`. Without one every refreshable provider is
- * passed over, which is what the panel-wide button sends.
- *
- * The response says only whether the pass completed and whether anything
- * moved. The refreshed catalog itself reaches the browser through the
- * `/api/models` and `/api/models/enabled` reloads the caller does next, so
- * there is no second shape of the model list to keep in agreement.
- */
-export async function POST(req: Request) {
-  let provider: string | undefined;
-  try {
-    const body = await req.json() as { provider?: unknown };
-    if (typeof body?.provider === "string" && body.provider.trim()) {
-      provider = body.provider.trim();
-    }
-  } catch {
-    // An empty body means "every provider", the same as no provider field.
-  }
+const backend = process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
 
-  const result = await shareModelCatalogRefresh(provider ? { providers: [provider] } : {});
-  return Response.json(result);
+export async function POST(request: Request) {
+  let body: { provider?: unknown } = {};
+  try {
+    body = await request.json() as { provider?: unknown };
+  } catch {
+    // An empty body means "refresh all providers".
+  }
+  const provider = typeof body.provider === "string" ? body.provider.trim() : "";
+  try {
+    const response = await fetch(new URL("/api/v1/models/refresh", backend), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(provider ? { provider } : {}),
+      cache: "no-store",
+      signal: request.signal,
+    });
+    const result = await response.clone().json().catch(() => null) as { changed?: unknown } | null;
+    if (response.ok && result?.changed === true) await invalidateModelsCache();
+    return new Response(response.body, {
+      status: response.status,
+      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
+    });
+  } catch {
+    return NextResponse.json({ completed: false, changed: false, reason: "runtime" });
+  }
 }

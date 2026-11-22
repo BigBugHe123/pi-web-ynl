@@ -1,15 +1,13 @@
-import type { SUBAGENT_CONTROL_TOOL_NAMES } from "./subagents";
 import type { SessionEntry, ToolResultMessage } from "./types";
 
-// Spelled out rather than imported: subagents.ts loads the SDK, and this module stays
-// importable on its own. The type rejects a name subagents.ts no longer registers.
-const SUBAGENT_TOOL_NAMES: ReadonlyArray<typeof SUBAGENT_CONTROL_TOOL_NAMES[number]> = [
+// Spelled out locally so this core stays importable without the subagent UI modules.
+const SUBAGENT_TOOL_NAMES = [
   "Agent",
   "get_subagent_result",
   "steer_subagent",
-];
+] as const;
 
-// pi's coding tools, as `CODING_TOOL_NAMES` in rpc-manager.ts lists them.
+// pi's coding tools, as the Rust agent's built-in tool registry defines them.
 const CODING_TOOL_NAMES = new Set<string>(["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"]);
 
 // Tools whose result text may authorize a path it mentions: the coding tools and Pi

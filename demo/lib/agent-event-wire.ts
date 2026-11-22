@@ -1,25 +1,29 @@
-import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
-
 export interface AgentEventLike {
   type: string;
   [key: string]: unknown;
 }
 
-type JsonMessageUpdateEvent = Extract<
-  JsonAgentSessionEvent,
-  { type: "message_update" }
->;
+type JsonAssistantMessageEvent =
+  | { type: "text_start" | "thinking_start"; contentIndex: number }
+  | { type: "text_delta" | "thinking_delta"; contentIndex: number; delta: string }
+  | { type: "text_end" | "thinking_end"; contentIndex: number; content: string; contentSignature?: string }
+  | { type: "toolcall_start"; contentIndex: number; id?: string; toolName?: string }
+  | { type: "toolcall_delta"; contentIndex: number; delta: string }
+  | { type: "toolcall_end"; contentIndex: number; toolCall: { id: string; name: string; arguments: Record<string, unknown> } }
+  | { type: "start" | "done" | "error"; [key: string]: unknown }
+  | { type: "toolcall_start"; contentIndex: number; id: string; toolName: string }
+  | { type: "toolcall_delta"; contentIndex: number; delta: string };
 
-type JsonAssistantMessageEvent = JsonMessageUpdateEvent["assistantMessageEvent"];
-type JsonToolCallStartEvent = Extract<JsonAssistantMessageEvent, { type: "toolcall_start" }>;
-type JsonToolCallDeltaEvent = Extract<JsonAssistantMessageEvent, { type: "toolcall_delta" }>;
+type JsonToolCallStartEvent = { type: "toolcall_start"; [key: string]: unknown };
+type JsonToolCallDeltaEvent = { type: "toolcall_delta"; [key: string]: unknown };
 
 export type ClientAssistantMessageEvent =
   | Exclude<JsonAssistantMessageEvent, { type: "toolcall_start" | "toolcall_delta" }>
   | (JsonToolCallStartEvent & { id?: string; toolName?: string })
   | (JsonToolCallDeltaEvent & { id?: string; toolName?: string });
 
-export type ClientMessageUpdateEvent = Omit<JsonMessageUpdateEvent, "assistantMessageEvent"> & {
+export type ClientMessageUpdateEvent = {
+  type: "message_update";
   assistantMessageEvent: ClientAssistantMessageEvent;
 };
 

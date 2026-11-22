@@ -8,7 +8,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { setTerminalTheme, useTerminalTheme } from "@/hooks/useTerminalTheme";
 import { subscribeFontPreferences } from "@/hooks/useFontPreferences";
 import { readFontWeight } from "@/lib/font-preferences";
-import { createTerminalWriter, terminalRequest } from "@/lib/terminal-client";
+import { createTerminalWriter, terminalRequest, type TerminalEvent } from "@/lib/terminal-client";
 import { pageId, trackEventSource } from "@/lib/page-debug";
 import {
   applyTerminalModifiers,
@@ -18,7 +18,6 @@ import {
   type TerminalModifier,
   type TerminalModifiers,
 } from "@/lib/terminal-extra-keys";
-import type { TerminalEvent } from "@/lib/terminal-manager";
 import { TERMINAL_XTERM_THEMES } from "@/lib/terminal-theme";
 import { TerminalExtraKeys, useTerminalExtraKeysVisible } from "./TerminalExtraKeys";
 import type { TerminalTab } from "./terminal-tab-state";

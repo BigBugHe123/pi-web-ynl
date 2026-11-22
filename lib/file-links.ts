@@ -49,9 +49,8 @@ const SHELL_DRIVE_PATH = /^\/(?:mnt\/|cygdrive\/)?([a-zA-Z])(?:\/(.*))?$/;
  * to the slash form `D:/work`, matching what pi does to the paths its bash tool
  * reports (`normalizeWindowsShellPath`).
  *
- * `windowsShellPath()` in `lib/http-dispatcher.ts` is the server-side twin: same
- * rule, native backslashes, and it also refuses a path holding one. That module
- * loads `node:fs`, so this client-side copy is not an import of it.
+ * The backend performs its own path normalization and authorization; this copy
+ * stays browser-safe and only prepares paths for in-app links.
  *
  * Decided by the caller's own path form — a Windows base directory or a
  * `<letter>:/` href — never by `process.platform`, because this module also runs

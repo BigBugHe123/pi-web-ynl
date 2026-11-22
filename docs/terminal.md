@@ -40,20 +40,10 @@ without splitting Unicode characters. Failed input is not retried because its
 delivery may be ambiguous. Reconnect attaches to the same process with a fresh
 writer; restart explicitly replaces the process.
 
-`bin/prepare-terminal.js` repairs node-pty 1.1.0's macOS spawn-helper executable
-bits during installation, including published/npm-installed Pi Web packages.
-
-Pi Web pins node-pty to `1.2.0-beta.15`, which includes Linux x64 and ARM64
-prebuilt binaries. Native module loading is deferred until terminal creation,
-so missing or incompatible binaries produce a JSON error with repair instructions.
-Empty or non-JSON API errors show the HTTP status and direct users to the server log.
-
-If a native binary cannot load, run
-`npm rebuild node-pty --build-from-source --ignore-scripts=false --foreground-scripts` from the
-installation directory (for npx, the cache directory containing `node_modules`).
-On Debian/Ubuntu, install `python3` and `build-essential` first. This forces a
-source build instead of reusing a missing or incompatible prebuilt binary.
-Restart Pi Web after repair.
+Pi Web validates the requested cwd and workspace access, then sends create,
+input, resize, reconnect, and termination requests to the Rust backend. The
+backend owns the PTY process and its bounded output history. If the backend is
+unavailable, terminal requests show its connection error.
 
 ## Verification
 

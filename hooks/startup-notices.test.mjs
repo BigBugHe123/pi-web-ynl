@@ -4,8 +4,8 @@ import test from "node:test";
 import ts from "typescript";
 import { createShownNotices, extensionErrorMessage } from "../lib/startup-issues.ts";
 
-// A session's wrapper tells its startup issues to every stream it opens, under the same ids
-// (lib/rpc-manager.ts); the page shows each once. These tests run the hook's own code, taken
+// The Rust agent backend reports startup issues to every stream it opens, under the same ids;
+// the page shows each once. These tests run the hook's own code, taken
 // from its source, against stubbed state.
 
 const hookSource = (await readFile(new URL("./useAgentSession.ts", import.meta.url), "utf8")).replace(/\r\n/g, "\n");

@@ -1,7 +1,7 @@
 import { buildAtMentionText } from "./file-fuzzy";
 import { encodeFilePathForApi } from "./file-paths";
 
-/** Browser side of `POST /api/files/[...path]?type=upload`; mirrors `lib/file-upload.ts`. */
+/** Browser client for Rust-backed `POST /api/files/[...path]?type=upload`. */
 export type UploadConflictStrategy = "error" | "overwrite" | "skip";
 
 export interface UploadError {

@@ -65,7 +65,7 @@ interface FileData {
   size: number;
   nextOffset: number;
   truncated: boolean;
-  // A NUL in the first bytes (lib/text-preview.ts): no text view, only the download.
+  // A NUL in the first bytes: no text view, only the download.
   binary?: boolean;
 }
 

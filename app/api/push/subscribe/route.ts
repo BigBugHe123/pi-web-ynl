@@ -1,41 +1,25 @@
-import { addSubscription, type PushSubscriptionRecord } from "@/lib/web-push";
-import { getLocalePlugin } from "@/lib/i18n/registry";
+import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-interface SubscribeRequestBody {
-  subscription?: Partial<PushSubscriptionRecord>;
-  locale?: string;
-}
+const backend = process.env.PI_RUST_BACKEND_URL ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL ?? "http://127.0.0.1:3030";
 
-function isValidSubscription(subscription: Partial<PushSubscriptionRecord> | undefined): subscription is PushSubscriptionRecord {
-  if (typeof subscription !== "object" || subscription === null) return false;
-  if (typeof subscription.endpoint !== "string" || !/^https:\/\//.test(subscription.endpoint)) return false;
-  const keys = subscription.keys;
-  if (typeof keys !== "object" || keys === null) return false;
-  return typeof keys.p256dh === "string" && keys.p256dh.length > 0
-    && typeof keys.auth === "string" && keys.auth.length > 0;
-}
-
-// POST /api/push/subscribe - register a browser push subscription. Upserts by
-// endpoint, so the client can safely re-send its subscription on every load.
+// POST /api/push/subscribe - register a browser subscription in the Rust backend.
 export async function POST(req: Request): Promise<Response> {
-  let body: SubscribeRequestBody;
   try {
-    body = await req.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+    const headers = new Headers({ "Content-Type": req.headers.get("Content-Type") ?? "application/json" });
+    const response = await fetch(new URL("/api/v1/push/subscribe", backend), {
+      method: "POST",
+      headers,
+      body: await req.arrayBuffer(),
+      cache: "no-store",
+      signal: req.signal,
+    });
+    return new Response(response.body, {
+      status: response.status,
+      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
   }
-
-  if (!isValidSubscription(body.subscription)) {
-    return Response.json({ error: "Invalid push subscription" }, { status: 400 });
-  }
-
-  const locale = typeof body.locale === "string" ? getLocalePlugin(body.locale)?.id ?? "en" : "en";
-  await addSubscription({
-    endpoint: body.subscription.endpoint,
-    keys: body.subscription.keys,
-    locale,
-  });
-  return Response.json({ ok: true });
 }

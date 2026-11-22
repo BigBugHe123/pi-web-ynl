@@ -1,51 +1,55 @@
-import { stat } from "fs/promises";
-import { resolve } from "path";
 import { NextResponse } from "next/server";
-import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
-import { isFileManagerSupported, isLoopbackHost, launchFileManager } from "@/lib/open-in-file-manager";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
-/** Whether this request may raise a file-manager window on the server. */
-function availabilityFor(request: Request): { supported: boolean; reason: string | null } {
-  if (!isLoopbackHost(request.headers.get("host"))) return { supported: false, reason: "remote" };
-  if (!isFileManagerSupported(process.platform)) return { supported: false, reason: "unsupported-platform" };
-  return { supported: true, reason: null };
-}
+const backendUrl = () => process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
 
-/** Lets the sidebar pick the button label and disable it when unavailable. */
-export async function GET(request: Request) {
-  const { supported, reason } = availabilityFor(request);
-  return NextResponse.json({ supported, reason, platform: process.platform });
-}
-
-/** Opens the session workspace in the OS file manager. */
-export async function POST(request: Request) {
+function rustBackendIsLocal(): boolean {
+  const configured = process.env.PI_RUST_BACKEND_SAME_HOST?.trim().toLowerCase();
+  if (["1", "true", "yes"].includes(configured ?? "")) return true;
+  if (["0", "false", "no"].includes(configured ?? "")) return false;
   try {
-    const { supported, reason } = availabilityFor(request);
-    if (!supported) {
-      return NextResponse.json({ error: reason }, { status: 403 });
-    }
-
-    const body = await request.json() as { cwd?: unknown };
-    if (typeof body.cwd !== "string" || !body.cwd.trim()) {
-      return NextResponse.json({ error: "cwd-required" }, { status: 400 });
-    }
-    const target = resolve(body.cwd);
-    // Authorize before touching the path, so a location outside the allowed
-    // roots answers 403 whether or not it exists.
-    const roots = await getAllowedFileRoots();
-    if (!isExistingFilePathAllowed(target, roots)) {
-      return NextResponse.json({ error: "access-denied" }, { status: 403 });
-    }
-    if (!(await stat(target)).isDirectory()) {
-      return NextResponse.json({ error: "not-a-directory" }, { status: 400 });
-    }
-
-    await launchFileManager(target);
-    return NextResponse.json({ opened: true });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    const hostname = new URL(backendUrl()).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    return hostname === "localhost"
+      || hostname.endsWith(".localhost")
+      || hostname === "host.docker.internal"
+      || hostname === "::1"
+      || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+  } catch {
+    return false;
   }
 }
+
+function remoteResponse(method: "GET" | "POST") {
+  if (method === "GET") {
+    const platform = process.platform === "win32" || process.platform === "darwin" || process.platform === "linux"
+      ? process.platform
+      : "unknown";
+    return NextResponse.json({ supported: false, reason: "remote", platform });
+  }
+  return NextResponse.json({ error: "remote" }, { status: 403 });
+}
+
+async function forward(request: Request, method: "GET" | "POST") {
+  if (!rustBackendIsLocal()) return remoteResponse(method);
+  try {
+    const response = await fetch(new URL("/api/v1/open-in-explorer", backendUrl()), {
+      method,
+      headers: {
+        "x-pi-web-host": request.headers.get("host") ?? "",
+        ...(method === "POST" ? { "content-type": request.headers.get("content-type") ?? "" } : {}),
+      },
+      ...(method === "POST" ? { body: await request.arrayBuffer() } : {}),
+      cache: "no-store",
+      signal: request.signal,
+    });
+    return new Response(response.body, { status: response.status, headers: response.headers });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
+  }
+}
+
+export const GET = (request: Request) => forward(request, "GET");
+export const POST = (request: Request) => forward(request, "POST");

@@ -1,6 +1,43 @@
-import type { McpExposure, ResourceDiagnostic } from "@earendil-works/pi-coding-agent";
-import type { McpImportNote } from "./mcp-import-core";
-import type { SubagentProfile } from "./subagents";
+﻿import type { McpImportNote } from "./mcp-import-core";
+import type { SubagentSessionStatus } from "./types";
+
+export type McpExposure = "codemode" | "deferred" | "direct" | "hidden";
+
+export type FileTreeHiddenReason = "ignored" | "excluded" | "always";
+
+export type SubagentScope = "builtin" | "global" | "workspace" | "project";
+export type SubagentWritableScope = Extract<SubagentScope, "global" | "project">;
+export interface SubagentProfile {
+  name: string;
+  displayName: string;
+  description: string;
+  systemPrompt: string;
+  tools: string[];
+  extensionTools?: string[];
+  disallowedExtensionTools?: string[];
+  skills?: string[];
+  extensions?: string[];
+  loadSkills: boolean;
+  loadExtensions: boolean;
+  codemode?: "inherit" | "on" | "off";
+  mcp?: "on" | "off";
+  model?: string;
+  thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  maxTurns?: number;
+  promptMode: "replace" | "append";
+  disallowedTools?: string[];
+  exposure?: "direct" | "deferred";
+  inheritContext: boolean;
+  runInBackground: boolean;
+  color?: string;
+  isolation?: "worktree" | "off";
+  persistSession?: boolean;
+  enabled: boolean;
+  scope: SubagentScope;
+  filePath?: string;
+}
+
+export interface ResourceDiagnostic { type: "warning" | "error" | "collision"; path?: string; message: string; collision?: { resourceType: "extension" | "skill" | "prompt" | "theme"; name: string; winnerPath: string; loserPath: string; winnerSource?: string; loserSource?: string } }
 
 export interface SubagentProfilesResponse {
   profiles: SubagentProfile[];
@@ -9,6 +46,43 @@ export interface SubagentProfilesResponse {
 export interface SubagentSettingsResponse {
   enabled: boolean;
   maxConcurrent: number;
+}
+
+export interface SubagentToolDetails {
+  kind: "pi-web-subagent";
+  sessionId: string;
+  profile: string;
+  description: string;
+  status: SubagentSessionStatus;
+  runInBackground: boolean;
+  createdAt: string;
+  completedAt?: string;
+  error?: string;
+  worktreePath?: string;
+  worktreeBranch?: string;
+  worktreeCleanupError?: string;
+}
+
+/** Session usage summary returned by the Rust agent API and rendered in chat. */
+export interface SessionStatsInfo {
+  sessionFile?: string;
+  sessionId: string;
+  sessionName?: string;
+  userMessages: number;
+  assistantMessages: number;
+  toolCalls: number;
+  toolResults: number;
+  totalMessages: number;
+  tokens: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    total: number;
+  };
+  cost: number;
+  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null };
+  totalActiveMs?: number;
 }
 
 /** Code mode's one choice (ADR 0006): Automatic writes nothing, Always on adds `+codemode` to the global defaultTools. */
@@ -139,7 +213,7 @@ export interface ProjectTrustStatus {
 
 /**
  * Why Pi Web does not trust a fresh folder by itself when a project server is
- * added to it (`trustFreshFolderAndWrite()` in `lib/project-trust.ts`): a
+ * added to it by the Rust backend: a
  * decision is inherited by every folder below it, so trusting this one would
  * trust `path` too.
  * - `home`: the folder is the home folder;
@@ -171,7 +245,7 @@ export type McpTrustFolderInfo =
   | { allowed: false; reason: "folder-not-fresh" };
 
 // ---------------------------------------------------------------------------
-// Settings › MCP (ADR 0006). Every refusal carries `{ error, reason }`: `error`
+// Settings 鈥?MCP (ADR 0006). Every refusal carries `{ error, reason }`: `error`
 // is an English diagnostic, `reason` a code the panel translates.
 // ---------------------------------------------------------------------------
 
@@ -245,8 +319,8 @@ export interface McpServerInfo {
   sourcePath: string;
   /**
    * Identifies the entry's content, to tell a changed entry from the one a
-   * status was recorded for: an HMAC of its canonical JSON under a per-process
-   * key (`mcpConfigKey()`), never the JSON, which holds literal values.
+   * status was recorded for: a backend generated key for its canonical JSON,
+   * never the JSON, which holds literal values.
    */
   configKey: string;
   enabled: boolean;
@@ -280,7 +354,7 @@ export interface McpServerInfo {
   headerNames: string[];
   /** An HTTP server without an `Authorization` header or `auth` signs in with OAuth when it answers 401. */
   usesOAuth: boolean;
-  /** An HTTP server's `auth.provider`: it sends that pi provider's token (signed in under Settings › Models) instead of using OAuth. */
+  /** An HTTP server's `auth.provider`: it sends that pi provider's token (signed in under Settings 鈥?Models) instead of using OAuth. */
   authProvider?: string;
   /**
    * Whether `mcp-auth.json` holds an access token for the server (by its name
@@ -319,8 +393,8 @@ export interface McpServerInfo {
   overriddenByProject?: boolean;
   /**
    * The last known connection state, from a test or an open session
-   * (`lib/mcp-status.ts`): only while it was recorded for this entry as the
-   * file holds it now (same `configKey`).
+   * (stored by the Rust backend): only while it was recorded for this entry
+   * as the file holds it now (same `configKey`).
    */
   status?: McpServerStatus;
 }
@@ -369,12 +443,12 @@ export interface McpTestResult {
   queuedMs?: number;
   /** When it finished, in milliseconds since the epoch. */
   testedAt: number;
-  /** The connection a Settings sign-in made right after it stored new tokens (`lib/mcp-sign-in.ts`), not a Test. */
+  /** The connection a Settings sign-in made right after it stored new tokens through Rust, not a Test. */
   afterSignIn?: true;
 }
 
 /**
- * What an open session's MCP host last saw of a server (`lib/mcp-host.ts`):
+ * What the Rust session backend last reported for a server:
  * - `connecting`: the session opened a connection that has not finished;
  * - `connected`: its tools are registered in the session;
  * - `needs-auth`: the server asked for an OAuth sign-in;
@@ -688,6 +762,8 @@ export interface McpErrorResponse {
    * nothing added. `reason` is the write's.
    */
   trustKept?: true;
+  /** Why a failed fresh-folder MCP write could not roll back the trust decision. */
+  rollbackError?: string;
 }
 
 /** What `POST /api/mcp` can do to a server of either file (ADR 0006: Add, a switch, Remove, Undo, and Sign out). */
@@ -739,7 +815,7 @@ export interface McpActionResponse extends McpResponse {
  * runs it:
  * - `connecting`: connecting once, to learn whether the server asks for a
  *   sign-in and with which challenge;
- * - `starting`: the SDK's sign-in runs (discovery, client registration) and
+ * - `starting`: OAuth discovery and client registration run and
  *   has not produced a sign-in page yet;
  * - `authorize`: waiting for the browser, `authorizationUrl` to open; the
  *   loopback callback or a pasted redirected address finishes it;

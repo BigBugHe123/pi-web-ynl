@@ -5,6 +5,13 @@
 Accepted. Amended 2026-10-02: why a switch cannot move is visible text, not a
 tooltip (see "Chrome is a tooltip").
 
+> **Current implementation (2026-11-23):** `GET/PUT /api/models/enabled` now
+> forwards to Rust's `/api/v1/models/enabled`. Rust owns provider/model
+> resolution, pattern resync, and settings writes; the old Node
+> `enabled-models-backend.ts`/Pi SDK adapter was removed. The contract and UX
+> decisions below remain applicable; references to the former TypeScript
+> resolver describe the historical implementation.
+
 ## Context
 
 pi narrows the model selector with the global `enabledModels` setting, a

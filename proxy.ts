@@ -1,31 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
-  getAuthRetryAfterMs,
-  recordAuthFailure,
-  retryAfterSeconds,
-} from "@/lib/auth-throttle";
-import {
   isApiRequestAllowed,
   isApiRequestHostAllowed,
 } from "@/lib/request-security";
-import {
-  isValidWebSessionToken,
-  isValidBasicAuthorization,
-  isWebPasswordEnabled,
-  PI_WEB_SESSION_COOKIE,
-} from "@/lib/web-auth";
+import { requestRustAuth } from "@/lib/web-auth";
 
-function tooManyAttempts(retryAfterMs: number): NextResponse {
-  return new NextResponse("Too many failed attempts", {
-    status: 429,
-    headers: {
-      "Cache-Control": "no-store",
-      "Retry-After": String(retryAfterSeconds(retryAfterMs)),
-    },
-  });
-}
-
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const isApiRequest = request.nextUrl.pathname === "/api"
     || request.nextUrl.pathname.startsWith("/api/");
   const isTrustedRequest = isApiRequest
@@ -39,28 +19,40 @@ export function proxy(request: NextRequest) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   }
 
-  const password = process.env.PI_WEB_PASSWORD;
-  if (!isWebPasswordEnabled(password)) {
-    if (request.nextUrl.pathname === "/login") {
-      return NextResponse.redirect(new URL("/", request.url));
+  let auth: { enabled: boolean; authenticated: boolean };
+  try {
+    const response = await requestRustAuth(request, { forwardAuthorization: isApiRequest, gate: true });
+    if (response.status === 429) {
+      const retryAfter = response.headers.get("retry-after") ?? "1";
+      return new NextResponse("Too many failed attempts", {
+        status: 429,
+        headers: { "Cache-Control": "no-store", "Retry-After": retryAfter },
+      });
     }
-    return NextResponse.next();
+    if (!response.ok) throw new Error(`Rust auth returned HTTP ${response.status}`);
+    const result: unknown = await response.json();
+    if (!result || typeof result !== "object"
+      || typeof (result as { enabled?: unknown }).enabled !== "boolean"
+      || typeof (result as { authenticated?: unknown }).authenticated !== "boolean") {
+      throw new Error("Rust auth returned an invalid decision");
+    }
+    auth = result as { enabled: boolean; authenticated: boolean };
+    if (process.env.PI_WEB_PASSWORD && !auth.enabled) {
+      throw new Error("Rust backend does not have password authentication enabled");
+    }
+  } catch {
+    // Never fall back to local password validation or open access when Rust is
+    // unavailable. A failed decision must not bypass the configured gate.
+    return new NextResponse("Authentication backend unavailable", {
+      status: 503,
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 
-  let authenticated = isValidWebSessionToken(request.cookies.get(PI_WEB_SESSION_COOKIE)?.value, password);
-  const authorization = isApiRequest ? request.headers.get("authorization") : null;
-  if (!authenticated && authorization && /^Basic\s/i.test(authorization)) {
-    // Every Basic header is a password guess, so it shares the login form's
-    // throttle; otherwise any API path (or GET /api/web-auth) answers guesses
-    // at full speed. While blocked even the right password is refused, or the
-    // answer would leak. A success does not reset the counter: Basic clients
-    // authenticate on every request, and each reset would hand an interleaved
-    // guesser a fresh short block.
-    const retryAfterMs = getAuthRetryAfterMs();
-    if (retryAfterMs > 0) return tooManyAttempts(retryAfterMs);
-    authenticated = isValidBasicAuthorization(authorization, password);
-    if (!authenticated) recordAuthFailure();
+  if (!auth.enabled && request.nextUrl.pathname === "/login") {
+    return NextResponse.redirect(new URL("/", request.url));
   }
+  const authenticated = !auth.enabled || auth.authenticated;
   if (request.nextUrl.pathname === "/login") {
     return authenticated
       ? NextResponse.redirect(new URL("/", request.url))

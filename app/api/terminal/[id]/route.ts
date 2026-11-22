@@ -1,47 +1,50 @@
 import { NextResponse } from "next/server";
-import { getTerminalCwd, killTerminal, resizeTerminal, writeTerminal } from "@/lib/terminal-manager";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const cwd = getTerminalCwd(id);
-  return cwd
-    ? NextResponse.json({ id, cwd })
-    : NextResponse.json({ error: "Terminal expired or closed" }, { status: 404 });
+const backend = process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
+
+type Context = { params: Promise<{ id: string }> };
+
+async function forward(path: string, init?: RequestInit): Promise<Response> {
+  const response = await fetch(new URL(path, backend), { cache: "no-store", ...init });
+  return new Response(response.body, {
+    status: response.status,
+    headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
+  });
 }
 
-export async function POST(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function GET(_req: Request, { params }: Context) {
+  const { id } = await params;
   try {
-    const { id } = await params;
-    const body = await req.json() as { type?: unknown; data?: unknown; cols?: unknown; rows?: unknown };
-    if (body.type === "input" && typeof body.data === "string" && body.data.length <= 64 * 1024) {
-      return writeTerminal(id, body.data)
-        ? NextResponse.json({ success: true })
-        : NextResponse.json({ error: "Terminal not found" }, { status: 404 });
-    }
-    if (body.type === "resize" && Number.isInteger(body.cols) && Number.isInteger(body.rows)
-      && (body.cols as number) >= 2 && (body.cols as number) <= 1000
-      && (body.rows as number) >= 1 && (body.rows as number) <= 1000) {
-      return resizeTerminal(id, body.cols as number, Math.max(2, body.rows as number))
-        ? NextResponse.json({ success: true })
-        : NextResponse.json({ error: "Terminal not found" }, { status: 404 });
-    }
-    return NextResponse.json({ error: "Invalid terminal command" }, { status: 400 });
+    return await forward(`/api/v1/terminals/${encodeURIComponent(id)}`);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
   }
 }
 
-export async function DELETE(
-  _req: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function POST(req: Request, { params }: Context) {
   const { id } = await params;
-  killTerminal(id);
-  return NextResponse.json({ success: true });
+  try {
+    return await forward(`/api/v1/terminals/${encodeURIComponent(id)}`, {
+      method: "POST",
+      headers: { "Content-Type": req.headers.get("Content-Type") ?? "application/json" },
+      body: await req.text(),
+      signal: req.signal,
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
+  }
+}
+
+export async function DELETE(_req: Request, { params }: Context) {
+  const { id } = await params;
+  try {
+    return await forward(`/api/v1/terminals/${encodeURIComponent(id)}`, { method: "DELETE" });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
+  }
 }

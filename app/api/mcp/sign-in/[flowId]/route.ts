@@ -1,34 +1,33 @@
 import { NextResponse } from "next/server";
 import type { McpErrorResponse, McpRefusalReason, McpSignInFlowInfo } from "@/lib/api-types";
-import { cancelMcpSignIn, pasteMcpSignInRedirect, readMcpSignIn } from "@/lib/mcp-sign-in";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
-// One Settings › MCP sign-in by its id (`lib/mcp-sign-in.ts`):
-//   GET     where it stands, which the panel polls about once a second;
-//   POST    { redirectUrl }: the address the browser was sent back to, for a
-//           browser that cannot reach Pi Web's loopback listener (another
-//           device, a remote server); a paste that is not this sign-in's
-//           answer is refused with 400 and the sign-in keeps waiting;
-//   DELETE  cancel it.
-// The id is a random UUID that only the start's answer carries. The entry was
-// checked when the sign-in started; nothing here connects or reads a file.
+const backend = process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
+const UNKNOWN = "No sign-in has that id: it ended over a minute ago, or Pi Web restarted";
+type Context = { params: Promise<{ flowId: string }> };
+
+function backendUrl(flowId: string, suffix = ""): URL {
+  return new URL(`/api/v1/mcp/sign-in/${encodeURIComponent(flowId)}${suffix}`, backend);
+}
 
 function refusal(status: number, reason: McpRefusalReason, error: string) {
   return NextResponse.json({ error, reason } satisfies McpErrorResponse, { status });
 }
 
-const UNKNOWN = "No sign-in has that id: it ended over a minute ago, or Pi Web restarted";
-
-type Context = { params: Promise<{ flowId: string }> };
-
 export async function GET(req: Request, { params }: Context) {
   if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
   const { flowId } = await params;
-  const flow = readMcpSignIn(flowId);
-  if (!flow) return refusal(404, "sign-in-unknown", UNKNOWN);
-  return NextResponse.json(flow satisfies McpSignInFlowInfo);
+  try {
+    const response = await fetch(backendUrl(flowId), { cache: "no-store", signal: req.signal });
+    if (!response.ok) return refusal(response.status === 404 ? 404 : response.status, "sign-in-unknown", UNKNOWN);
+    return NextResponse.json(await response.json() as McpSignInFlowInfo);
+  } catch (error) {
+    return refusal(502, "internal", error instanceof Error ? error.message : String(error));
+  }
 }
 
 export async function POST(req: Request, { params }: Context) {
@@ -44,15 +43,26 @@ export async function POST(req: Request, { params }: Context) {
   const redirectUrl = typeof body === "object" && body !== null && !Array.isArray(body)
     ? (body as Record<string, unknown>).redirectUrl
     : undefined;
-  const result = pasteMcpSignInRedirect(flowId, redirectUrl);
-  if (result.ok) return NextResponse.json(result.flow satisfies McpSignInFlowInfo);
-  return refusal(result.status, result.reason, result.error);
+  try {
+    const response = await fetch(backendUrl(flowId, "/redirect"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: req.signal,
+      body: JSON.stringify({ redirectUrl }),
+    });
+    return NextResponse.json(await response.json(), { status: response.status });
+  } catch (error) {
+    return refusal(502, "internal", error instanceof Error ? error.message : String(error));
+  }
 }
 
 export async function DELETE(req: Request, { params }: Context) {
   if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
   const { flowId } = await params;
-  const flow = cancelMcpSignIn(flowId);
-  if (!flow) return refusal(404, "sign-in-unknown", UNKNOWN);
-  return NextResponse.json(flow satisfies McpSignInFlowInfo);
+  try {
+    const response = await fetch(backendUrl(flowId), { method: "DELETE", signal: req.signal });
+    return NextResponse.json(await response.json(), { status: response.status });
+  } catch (error) {
+    return refusal(502, "internal", error instanceof Error ? error.message : String(error));
+  }
 }

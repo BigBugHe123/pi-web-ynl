@@ -1,18 +1,22 @@
 import { NextResponse } from "next/server";
-import { buildDebugSnapshot } from "@/lib/debug-snapshot";
 
 export const dynamic = "force-dynamic";
-// The registries it reads live in this Node process.
-export const runtime = "nodejs";
-
 const MAX_SESSION_ID_LENGTH = 512;
+const backend = process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
 
-// GET /api/agent/debug?session=<id> - The debug panel's server view: the global layer and the
-// selected session's detail in one request, since over HTTP/1.1 each request competes for the
-// browser's six connections. Reads only (lib/debug-snapshot.ts): never starts a wrapper, opens
-// a stream or moves an idle timer.
+// GET /api/agent/debug?session=<id> - Rust owns the process snapshot and open-stream registry.
 export async function GET(req: Request) {
   const requested = new URL(req.url).searchParams.get("session");
   const sessionId = requested && requested.length <= MAX_SESSION_ID_LENGTH ? requested : null;
-  return NextResponse.json(buildDebugSnapshot(sessionId), { headers: { "Cache-Control": "no-store" } });
+  try {
+    const rustUrl = new URL("/api/v1/debug", backend);
+    if (sessionId) rustUrl.searchParams.set("session", sessionId);
+    const response = await fetch(rustUrl, { cache: "no-store", signal: AbortSignal.timeout(1_000) });
+    if (!response.ok) return NextResponse.json({ error: `Rust debug snapshot failed (${response.status})` }, { status: 502 });
+    return NextResponse.json(await response.json(), { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502, headers: { "Cache-Control": "no-store" } });
+  }
 }

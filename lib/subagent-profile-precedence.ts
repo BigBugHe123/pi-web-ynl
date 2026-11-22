@@ -1,4 +1,4 @@
-import type { SubagentProfile, SubagentScope } from "./subagents";
+import type { SubagentProfile, SubagentScope } from "./api-types";
 
 const SUBAGENT_SCOPE_PRIORITY: Record<SubagentScope, number> = {
   builtin: 0,

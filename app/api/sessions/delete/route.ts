@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import { deleteSessions, MAX_SESSION_DELETE_IDS, type SessionDeleteResult } from "@/lib/session-delete";
+import { MAX_SESSION_DELETE_IDS, type SessionDeleteResult } from "@/lib/session-delete-types";
 import { SESSION_ID_PATTERN } from "@/lib/session-ui-state-shared";
 
 export const dynamic = "force-dynamic";
 
-// A project group's "Delete all sessions": the ids the sidebar showed in its
-// confirmation, each with the subagent sessions below it, in one pass over
-// the catalogue (lib/session-delete.ts). A session that started running since
-// is kept and reported, never stopped; an id already gone is reported too.
+// A project group's "Delete all sessions": Rust removes each requested
+// session and its subagent family, while keeping families that started running.
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -33,8 +31,18 @@ export async function POST(req: Request) {
   if (!ids.every((id) => typeof id === "string" && SESSION_ID_PATTERN.test(id))) return refusal(400, "ids must be session ids");
 
   try {
-    const result = await deleteSessions(ids as string[], { keepRunning: true });
-    return NextResponse.json(result satisfies SessionDeleteResult, { headers: NO_STORE });
+    const backend = process.env.PI_RUST_BACKEND_URL ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL ?? "http://127.0.0.1:3030";
+    const response = await fetch(new URL("/api/v1/sessions/delete", backend), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    const result = await response.json() as SessionDeleteResult & { success?: boolean; data?: SessionDeleteResult; error?: string };
+    if (!response.ok || result.error || !result.data) {
+      return refusal(response.status || 502, result.error ?? `Rust backend returned HTTP ${response.status}`);
+    }
+    const data = result.data;
+    return NextResponse.json(data satisfies SessionDeleteResult, { headers: NO_STORE });
   } catch (error) {
     return refusal(500, error instanceof Error ? error.message : String(error));
   }

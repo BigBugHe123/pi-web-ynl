@@ -74,15 +74,15 @@ async function setup({ fresh = false, context } = {}) {
     if (url.startsWith("/api/models")) return json({ models: {}, modelList: [] });
     if (url === "/api/agent/new") return json({ sessionId: sid });
     if (url.startsWith(`/api/sessions/${sid}/context?`)) return json({ context: { ...server.branchContext, oldestEntryId: null, hasMore: false } });
-    if (url.startsWith(`/api/sessions/${sid}?`)) {
+    if (url.startsWith(`/api/v1/sessions/${sid}?`) || url.startsWith(`/api/sessions/${sid}?`)) {
       if (server.readsDown) throw new TypeError("Failed to fetch");
       // The revision follows the file, as the server's: a prompt that never
       // arrived leaves it unchanged, and the hook then keeps its view's messages.
       const snapshotRevision = `r:${server.context.entryIds.join(",")}`;
       return json({ sessionId: sid, filePath: `/${sid}.jsonl`, leafId: null, tree: [], treeFormat: "summary", snapshotRevision, context: { ...server.context, oldestEntryId: null, hasMore: false } });
     }
-    if (url === `/api/sessions/${sid}/state`) return json(state());
-    if (url === `/api/agent/${sid}` && init.body) {
+    if (url === `/api/v1/sessions/${sid}/state` || url === `/api/sessions/${sid}/state`) return json(state());
+    if ((url === `/api/agent/${sid}` || url === `/api/v1/sessions/${sid}/commands`) && init.body) {
       const command = JSON.parse(init.body);
       if (command.type !== "prompt") return json({ success: true, data: null });
       prompts.push(command);
@@ -90,7 +90,7 @@ async function setup({ fresh = false, context } = {}) {
       await server.response.promise;
       return outcomes[server.outcome]();
     }
-    if (url === `/api/agent/${sid}`) {
+    if (url === `/api/agent/${sid}` || url === `/api/v1/sessions/${sid}`) {
       if (server.statusDown) throw new TypeError("Failed to fetch");
       return json(state());
     }
@@ -171,6 +171,27 @@ async function sendNormal(env) {
   setDraft(env.sid, { value: "second draft", images: [] });
   return { sending };
 }
+
+test("normal RPC prompt: agent_settled immediately re-enables the composer without prompt_done", async () => {
+  await withSetup({}, async (env) => {
+    const { sending } = await sendNormal(env);
+    await env.emit({ type: "agent_start" });
+    env.server.running = true;
+    await env.answer("accepted");
+    await sending;
+    assert.equal(env.hook.result.agentRunning, true);
+
+    await env.emit({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "reply" }], stopReason: "stop" } });
+    assert.equal(env.hook.result.agentPhase, null, "a completed answer is not labelled as waiting for the model");
+    assert.equal(env.hook.result.agentRunning, true, "keep the composer busy until the run is actually settled");
+
+    // Rust RPC reports run completion with agent_settled. It does not emit
+    // prompt_done for a normal prompt; waiting for it left the composer stuck
+    // until the status reconciliation request eventually ran.
+    await env.emit({ type: "agent_settled" });
+    assert.equal(env.hook.result.agentRunning, false);
+  });
+});
 
 for (const outcome of ["network", "proxy503"]) {
   test(`normal send, ${outcome}: the bubble stays, the text comes back once an idle server shows it never arrived`, async () => {

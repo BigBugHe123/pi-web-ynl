@@ -27,7 +27,7 @@ import {
 import { clearDraft, getDraft, parkedNewSessionDraftKey, rekeyDraft, restoreDraftSubmission, setDraft, type ChatDraft } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
-import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { SessionStatsInfo } from "@/lib/api-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { formatSessionSummary } from "@/lib/session-stats-format";
 import { userMessageKey } from "@/lib/prompt-recovery";
@@ -97,6 +97,41 @@ export interface SessionData {
   stats?: SessionFileStats;
   /** True when GET ?force=1 dropped a stale live wrapper and rebuilt from disk. */
   wrapperRebuilt?: boolean;
+}
+
+function normalizeSessionContext(value: unknown): SessionData["context"] {
+  const outer = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Partial<SessionData["context"]> & { context?: unknown }
+    : {};
+  // The Rust detail endpoint historically returned the /context paging
+  // envelope here, while the UI contract is the flat context payload.
+  const nested = outer.context && typeof outer.context === "object" && !Array.isArray(outer.context)
+    ? outer.context as Partial<SessionData["context"]>
+    : null;
+  const context = nested && Array.isArray(nested.messages)
+    ? nested
+    : outer;
+  if (!Array.isArray(context.messages)) {
+    console.warn("Rust session response had a non-array context.messages; showing an empty message window.");
+  }
+  return {
+    ...context,
+    messages: Array.isArray(context.messages) ? context.messages : [],
+    entryIds: Array.isArray(context.entryIds) ? context.entryIds : [],
+    oldestEntryId: typeof context.oldestEntryId === "string" ? context.oldestEntryId : null,
+    hasMore: context.hasMore === true,
+    turnsBefore: typeof context.turnsBefore === "number" && Number.isFinite(context.turnsBefore) ? context.turnsBefore : 0,
+    thinkingLevel: typeof context.thinkingLevel === "string" ? context.thinkingLevel : "off",
+    model: context.model ?? null,
+  } as SessionData["context"];
+}
+
+function normalizeSessionData(value: unknown): SessionData {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid Rust session response");
+  }
+  const data = value as SessionData;
+  return { ...data, context: normalizeSessionContext(data.context) };
 }
 
 interface AgentEvent {
@@ -311,7 +346,7 @@ const MODELS_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
-// A session's startup issues come with every stream it opens (lib/rpc-manager.ts): this page
+// A session's startup issues come with every stream it opens (Rust agent backend): this page
 // shows each once, through reconnects and returns to the session.
 const isFirstNoticeShowing = createShownNotices();
 function createNoticeId(): string {
@@ -851,7 +886,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return null;
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as SessionData;
+      const d = normalizeSessionData(await res.json());
       if (sessionIdRef.current !== sid) return null;
       if ((lastReadContextRef.current?.seq ?? 0) < readSeq) {
         lastReadContextRef.current = { sid, seq: readSeq, messages: d.context.messages, entryIds: d.context.entryIds ?? [] };
@@ -998,7 +1033,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
       const res = await fetch(url, { signal: options?.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: SessionData["context"] };
+      const raw = await res.json() as { context?: unknown };
+      const d = { context: normalizeSessionContext(raw?.context) };
       if (sessionIdRef.current !== sid || options?.signal?.aborted || !sessionHookMountedRef.current) return;
       setHistoryCursor(d.context.oldestEntryId);
       setHasEarlierMessages(d.context.hasMore);
@@ -1102,7 +1138,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // so pi resolves settings.json defaultTools instead of being pinned to ours (#700).
       const toolNames = getToolNamesForPreset(toolPreset);
       sessionToolsPinnedRef.current = toolNames !== undefined;
-      const res = await fetch(agentBackendUrl("/api/v1/sessions"), {
+      const res = await fetch(agentBackendUrl("/api/agent/new"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1870,7 +1906,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", tail: "1" });
     const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/context?${params}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { context, leafId } = await res.json() as { context: SessionData["context"]; leafId?: string | null };
+    const raw = await res.json() as { context?: unknown; leafId?: string | null };
+    const context = normalizeSessionContext(raw?.context);
+    const { leafId } = raw;
     // A run started meanwhile shows its own messages, and its end reads them all.
     if (!idleMessageReadWanted(sid)) return;
     // The window as it is now: a read that landed meanwhile started after the
@@ -1997,7 +2035,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "agent_settled": {
         const agentWasActive = sdkAgentActiveRef.current;
         sdkAgentActiveRef.current = false;
-        if (!agentWasActive || rpcPromptPendingRef.current) break;
+        if (!agentWasActive) break;
 
         const sid = sessionIdRef.current;
         const wasRunning = settleUiStage();
@@ -2129,7 +2167,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           }
         }
         dispatch({ type: "end" });
-        setAgentPhase({ kind: "waiting_model" });
+        // A completed assistant message is already visible. The run may still
+        // be doing post-response bookkeeping before agent_settled, but showing
+        // "Waiting for model" during that gap is misleading. The next
+        // agent_start or tool event will set the phase if work continues.
+        setAgentPhase(completed?.role === "assistant" ? null : { kind: "waiting_model" });
         break;
       }
       case "tool_execution_start": {

@@ -3,13 +3,12 @@
 // groups, the names the user gave projects, and when sessions were last read
 // (each browser's unread markers clear against it). It is pi-web's state,
 // never written into a session's `.jsonl`, so the pi CLI does not see it. The
-// server keeps it in `pi-web-session-state.json` in the agent dir
-// (`lib/session-ui-state.ts`); this module holds the types and the pure rules
+// Rust keeps it in `pi-web-session-state.json` in the agent dir; this module holds the types and the pure rules
 // both sides apply, so the client can apply a change optimistically exactly as
 // the server will. Client-safe: no Node imports.
 
 export const SESSION_UI_STATE_VERSION = 1;
-/** The session ids pi writes (UUIDs); same as `lib/session-reader.ts`. */
+/** The session ids pi writes (UUIDs), as accepted by the Rust session API. */
 export const SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 export const MAX_SESSION_UI_IDS_PER_REQUEST = 500;
 /** Longest projectKey or project root a request or the file may carry. */

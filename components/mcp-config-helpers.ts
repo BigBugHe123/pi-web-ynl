@@ -26,7 +26,8 @@ import type {
   McpTestResult,
   ProjectTrustStatus,
 } from "@/lib/api-types";
-import type { McpImportFieldValue, McpImportNote } from "@/lib/mcp-import";
+import type { McpServerConfig } from "@/lib/mcp-types";
+import type { McpImportNote } from "@/lib/mcp-import";
 import { itemsToSwitch } from "./settings-ui-helpers";
 
 // Pure helpers for Settings › MCP (components/McpConfig.tsx): what each row
@@ -1165,13 +1166,12 @@ export type McpActionRequest =
   | { action: "undo"; token: string }
   | {
       action: "add";
-      text: string;
-      values: Record<string, McpImportFieldValue>;
-      secretReferences?: Record<string, string>;
-      server: number;
+      entry?: McpServerConfig;
       name: string;
       scope: McpScope;
-      rawPi: boolean;
+      rawPi?: boolean;
+      chosenVariables?: string[];
+      secretPaths?: string[];
       trustFolder?: boolean;
       confirmHostEnv?: string[];
     };

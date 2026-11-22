@@ -1,49 +1,21 @@
 import { NextResponse } from "next/server";
-import { statSync, type Stats } from "fs";
-import { homedir } from "os";
-import { isAbsolute, resolve } from "path";
-import { allowFileRoot } from "@/lib/file-access";
-import { projectIdentityKey } from "@/lib/project-identity";
-import { resolveProject } from "@/lib/worktree";
 
-function normalizeCwd(cwd: string): string {
-  if (cwd === "~") return homedir();
-  if (cwd.startsWith("~/")) return resolve(homedir(), cwd.slice(2));
-  return isAbsolute(cwd) ? cwd : resolve(cwd);
-}
+export const dynamic = "force-dynamic";
 
-// POST /api/cwd/validate  body: { cwd: string }
-// Validates a candidate workspace before the UI selects it.
-export async function POST(req: Request) {
+export async function POST(request: Request) {
+  const backend = process.env.PI_RUST_BACKEND_URL
+    ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+    ?? "http://127.0.0.1:3030";
   try {
-    const body = await req.json() as { cwd?: unknown };
-    const cwd = typeof body.cwd === "string" ? body.cwd.trim() : "";
-
-    if (!cwd) {
-      return NextResponse.json({ error: "Path is required" }, { status: 400 });
-    }
-
-    const normalizedCwd = normalizeCwd(cwd);
-    let stat: Stats;
-    try {
-      stat = statSync(normalizedCwd);
-    } catch {
-      return NextResponse.json({ error: `Directory does not exist: ${cwd}` }, { status: 400 });
-    }
-
-    if (!stat.isDirectory()) {
-      return NextResponse.json({ error: `Path is not a directory: ${cwd}` }, { status: 400 });
-    }
-
-    allowFileRoot(normalizedCwd);
-    const project = await resolveProject(normalizedCwd);
-    return NextResponse.json({
-      success: true,
-      cwd: normalizedCwd,
-      projectRoot: project.projectRoot,
-      projectKey: projectIdentityKey(project.projectRoot),
+    const response = await fetch(new URL("/api/v1/cwd/validate", backend), {
+      method: "POST",
+      headers: { "content-type": request.headers.get("content-type") ?? "" },
+      body: await request.arrayBuffer(),
+      cache: "no-store",
+      signal: request.signal,
     });
+    return new Response(response.body, { status: response.status, headers: response.headers });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
   }
 }

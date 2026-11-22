@@ -1,4 +1,4 @@
-import type { McpExposure, McpServerConfig } from "@earendil-works/pi-coding-agent";
+import type { McpExposure, McpServerConfig } from "@/lib/mcp-types";
 import type {
   FreshFolderTrustBreadth,
   McpConfigFieldRef,
@@ -34,10 +34,9 @@ import { formatMcpCommandLine, revealHiddenCharacters } from "@/lib/mcp-server-d
 import { isBlockingFileProblem, mcpProjectTrustable, mcpWritesOff } from "./mcp-config-helpers";
 
 // The add pane of Settings › MCP (`components/McpAddServer.tsx`): what a paste
-// becomes, previewed in the browser with the same pure importer the route
-// parses it with again (`lib/mcp-import.ts`), where it can be saved, and why
-// Add cannot be used. Nothing here sends anything; `postMcpAction()` does,
-// with `mcpAddRequest()`'s body.
+// becomes, previewed in the browser with the pure importer (`lib/mcp-import.ts`),
+// where it can be saved, and why Add cannot be used. Rust validates and writes
+// the structured candidate that `mcpAddRequest()` sends.
 
 /** What the user has typed into the add pane; the panel keeps it while another row is shown. */
 export interface McpAddDraft {
@@ -711,17 +710,21 @@ export function mcpAddAnalysis(draft: McpAddDraft, data: McpResponse, cwd: strin
   };
 }
 
-/** The body of `POST /api/mcp { action: "add" }` for an analysis Add may send; the route parses the text again. */
+/** The structured preview candidate; Rust validates it and performs all config I/O. */
 export function mcpAddRequest(draft: McpAddDraft, analysis: McpAddAnalysis, confirmHostEnv?: readonly string[]) {
+  const chosenVariables = new Set<string>();
+  for (const value of Object.values(analysis.values)) {
+    if (typeof value === "object") chosenVariables.add(value.reference.trim());
+  }
+  for (const value of Object.values(analysis.secretReferences)) chosenVariables.add(value.trim());
   return {
     action: "add" as const,
-    text: draft.text,
-    values: analysis.values,
-    ...(Object.keys(analysis.secretReferences).length > 0 ? { secretReferences: { ...analysis.secretReferences } } : {}),
-    server: analysis.server && analysis.parsed.ok ? analysis.parsed.servers.indexOf(analysis.server) : 0,
+    ...(analysis.fill?.ok ? { entry: analysis.fill.config as McpServerConfig } : {}),
     name: analysis.name,
     scope: analysis.scope,
     rawPi: draft.rawPi,
+    chosenVariables: [...chosenVariables].filter(Boolean),
+    secretPaths: [...analysis.secretPaths],
     ...(analysis.trustFolder ? { trustFolder: true } : {}),
     ...(confirmHostEnv && confirmHostEnv.length > 0 ? { confirmHostEnv: [...confirmHostEnv] } : {}),
   };

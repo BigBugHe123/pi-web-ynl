@@ -74,7 +74,8 @@ function finishStats(stats: SessionFileStats): SessionFileStats {
 
 function computeMessageStats(messages: AgentMessage[]): SessionFileStats {
   const stats = emptyStats();
-  for (const message of messages) {
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (!message || typeof message !== "object") continue;
     if (message.role !== "custom") addMessage(stats, message);
   }
   return finishStats(stats);

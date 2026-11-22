@@ -1,6 +1,6 @@
-// Client-side helper for POST /api/agent/[id].
+// Client-side helper for POST /api/v1/sessions/[id]/commands.
 //
-// Every /api/agent/[id] route returns one of:
+// Every backend session command returns one of:
 //   { success: true, data: <result> }
 //   { error: string }              (non-2xx)
 //
@@ -31,9 +31,7 @@ export class AgentCommandError extends Error {
 export const EXTENSION_REPORTED_CODE = "extension_reported";
 
 export function agentBackendUrl(path: string): string {
-  // Keep browser requests on the Pi Web origin. Next rewrites /api/v1/* to
-  // the loopback-only Rust backend, so LAN clients never try to reach their
-  // own 127.0.0.1 or require the backend to expose CORS to the network.
+  // Keep browser requests on the Pi Web origin; server routes proxy to the backend.
   return path;
 }
 
@@ -44,7 +42,7 @@ export function isPromptRejectedError(error: unknown): error is AgentCommandErro
 }
 
 /**
- * GET /api/agent/[id] without the system prompt, for status reads: the usage read after each
+ * GET /api/v1/sessions/[id] without the system prompt, for status reads: the usage read after each
  * reply and on every stream connect, the settle and reconcile polls. None of them shows the
  * prompt, and it is nearly all of the reply (context files, skills, tool notes: hundreds of KB
  * in a large project), fetched again after every model call (#1302).
@@ -62,9 +60,7 @@ export async function sendAgentCommand<T = unknown>(
   command: Record<string, unknown>,
 ): Promise<T> {
   const res = await fetch(agentBackendUrl(`/api/v1/sessions/${encodeURIComponent(sessionId)}/commands`), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(command),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command),
   });
   const body = (await res.json().catch(() => ({}))) as {
     success?: boolean;

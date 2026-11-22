@@ -1,8 +1,8 @@
 "use client";
 
 import { useId, useMemo } from "react";
-import type { McpServerConfig } from "@earendil-works/pi-coding-agent";
 import type { McpResponse, McpScope } from "@/lib/api-types";
+import type { McpServerConfig } from "@/lib/mcp-types";
 import { useI18n } from "@/hooks/useI18n";
 import { shortenPath } from "@/lib/display-path";
 import type { McpImportField, McpImportNote } from "@/lib/mcp-import";

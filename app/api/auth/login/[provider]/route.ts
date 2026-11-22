@@ -1,212 +1,80 @@
-import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
-import { randomUUID } from "node:crypto";
+import { NextResponse } from "next/server";
 import { invalidateModelsCache } from "@/lib/models-cache";
-import { createLoginOptions, createModelRuntimeWithExtensions } from "@/lib/model-runtime";
 
 export const dynamic = "force-dynamic";
 
-// In-memory registry: loginToken -> resolve/reject for the manualCodeInput promise
-declare global {
-  var __piLoginCallbacks: Map<string, { resolve: (v: string) => void; reject: (e: Error) => void }> | undefined;
-}
+const backend = process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
 
-function getCallbackRegistry() {
-  if (!globalThis.__piLoginCallbacks) globalThis.__piLoginCallbacks = new Map();
-  return globalThis.__piLoginCallbacks;
-}
+type Params = { params: Promise<{ provider: string }> };
 
-// POST /api/auth/login/[provider] — frontend sends redirect URL or auth code
-export async function POST(
-  req: Request,
-  { params }: { params: Promise<{ provider: string }> }
-) {
-  const { provider } = await params;
-  const { token, code } = (await req.json()) as { token?: string; code?: string };
-
-  if (!token || !code) {
-    return Response.json({ error: "token and code required" }, { status: 400 });
-  }
-
-  const registry = getCallbackRegistry();
-  const callbacks = registry.get(token);
-  if (!callbacks) {
-    return Response.json({ error: "No pending login for token" }, { status: 404 });
-  }
-  // Verify token belongs to this provider (token format: "<provider>-<uuid>")
-  if (!token.startsWith(`${provider}-`)) {
-    return Response.json({ error: "Token does not match provider" }, { status: 400 });
-  }
-
-  callbacks.resolve(code);
-  registry.delete(token);
-  return Response.json({ ok: true, provider });
-}
-
-// GET /api/auth/login/[provider] — SSE stream for OAuth flow
-export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ provider: string }> }
-) {
-  const { provider } = await params;
-
+function invalidateOnLoginSuccess(body: ReadableStream<Uint8Array> | null): ReadableStream<Uint8Array> | null {
+  if (!body) return null;
+  const decoder = new TextDecoder();
   const encoder = new TextEncoder();
-  // An extension's login can report progress from a timer or a server event
-  // after this stream closed (login settled, or the client went away). Enqueue
-  // then throws outside any await of ours: an uncaughtException in the log.
-  let closed = false;
-  const send = (controller: ReadableStreamDefaultController, data: unknown) => {
-    if (closed) return;
+  let pending = "";
+  const inspect = async (frame: string) => {
+    const data = frame.split(/\r?\n/u).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+    if (!data) return;
     try {
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-    } catch {
-      closed = true;
-    }
+      if ((JSON.parse(data) as { type?: unknown }).type === "success") await invalidateModelsCache();
+    } catch { /* forward malformed SSE data unchanged */ }
   };
-  const close = (controller: ReadableStreamDefaultController) => {
-    if (closed) return;
-    closed = true;
-    try { controller.close(); } catch { /* already closed */ }
-  };
-
-  // AbortController propagates client disconnect into ModelRuntime.login().
-  const abort = new AbortController();
-  req.signal.addEventListener("abort", () => abort.abort());
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      const modelRuntime = await createModelRuntimeWithExtensions();
-      if (!modelRuntime.getProvider(provider)?.auth.oauth) {
-        send(controller, { type: "error", message: `Unknown provider: ${provider}` });
-        close(controller);
-        return;
-      }
-
-      const registry = getCallbackRegistry();
-      const activeTokens = new Set<string>();
-      let pendingManualRequest: { token: string; promise: Promise<string> } | undefined;
-
-      const createClientInputRequest = () => {
-        // Manual-code handshake token; crypto randomness so a pending OAuth
-        // manual flow cannot be hijacked by predicting Math.random().
-        const token = `${provider}-${randomUUID()}`;
-        activeTokens.add(token);
-
-        const promise = new Promise<string>((resolve, reject) => {
-          registry.set(token, {
-            resolve: (value) => {
-              activeTokens.delete(token);
-              registry.delete(token);
-              resolve(value);
-            },
-            reject: (error) => {
-              activeTokens.delete(token);
-              registry.delete(token);
-              reject(error);
-            },
-          });
-        });
-
-        return { token, promise };
-      };
-
-      const getManualInputRequest = () => {
-        if (!pendingManualRequest) {
-          pendingManualRequest = createClientInputRequest();
-          pendingManualRequest.promise
-            .finally(() => {
-              pendingManualRequest = undefined;
-            })
-            .catch(() => {});
-        }
-        return pendingManualRequest;
-      };
-
-      // Cleanup: remove pending token and abort any waiting promise
-      const cleanup = () => {
-        for (const token of activeTokens) {
-          registry.get(token)?.reject(new Error("Login cancelled"));
-          registry.delete(token);
-        }
-        activeTokens.clear();
-      };
-
-      // Also cancel on client disconnect
-      abort.signal.addEventListener("abort", cleanup);
-
-      const loginOptions = createLoginOptions();
-      try {
-        await modelRuntime.login(provider, "oauth", {
-          prompt: async (prompt: AuthPrompt) => {
-            const request = prompt.type === "manual_code"
-              ? getManualInputRequest()
-              : createClientInputRequest();
-            if (prompt.type === "select") {
-              send(controller, {
-                type: "select_request",
-                message: prompt.message,
-                options: prompt.options,
-                token: request.token,
-              });
-            } else {
-              send(controller, {
-                type: "prompt_request",
-                message: prompt.message,
-                placeholder: prompt.placeholder ?? null,
-                token: request.token,
-              });
-            }
-            return request.promise;
-          },
-          notify: (event: AuthEvent) => {
-            if (event.type === "auth_url") {
-              const request = getManualInputRequest();
-              send(controller, {
-                type: "auth",
-                url: event.url,
-                instructions: event.instructions ?? null,
-                token: request.token,
-              });
-            } else if (event.type === "device_code") {
-              send(controller, {
-                type: "device_code",
-                userCode: event.userCode,
-                verificationUri: event.verificationUri,
-                intervalSeconds: event.intervalSeconds ?? null,
-                expiresInSeconds: event.expiresInSeconds ?? null,
-              });
-            } else {
-              send(controller, { type: "progress", message: event.message });
-            }
-          },
-          signal: abort.signal,
-        }, loginOptions.options);
-
-        invalidateModelsCache();
-        send(controller, { type: "success" });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg !== "Login cancelled") {
-          send(controller, { type: "error", message: msg });
-        } else {
-          send(controller, { type: "cancelled" });
-        }
-      } finally {
-        cleanup();
-        await loginOptions.flush();
-        close(controller);
+  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    async transform(chunk, controller) {
+      pending += decoder.decode(chunk, { stream: true });
+      const frames = pending.split(/\r?\n\r?\n/u);
+      pending = frames.pop() ?? "";
+      for (const frame of frames) {
+        await inspect(frame);
+        controller.enqueue(encoder.encode(`${frame}\n\n`));
       }
     },
-    cancel() {
-      closed = true;
-      abort.abort();
+    async flush(controller) {
+      pending += decoder.decode();
+      if (pending) {
+        await inspect(pending);
+        controller.enqueue(encoder.encode(pending));
+      }
     },
-  });
+  }));
+}
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+export async function GET(request: Request, { params }: Params) {
+  const { provider } = await params;
+  try {
+    const response = await fetch(new URL(`/api/v1/auth/login/${encodeURIComponent(provider)}`, backend), {
+      cache: "no-store",
+      signal: request.signal,
+    });
+    return new Response(invalidateOnLoginSuccess(response.body), {
+      status: response.status,
+      headers: {
+        "Content-Type": response.headers.get("Content-Type") ?? "text/event-stream",
+        "Cache-Control": "no-cache",
+      },
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request, { params }: Params) {
+  const { provider } = await params;
+  try {
+    const response = await fetch(new URL(`/api/v1/auth/login/${encodeURIComponent(provider)}`, backend), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: await request.text(),
+      cache: "no-store",
+      signal: request.signal,
+    });
+    return new Response(response.body, {
+      status: response.status,
+      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
 }

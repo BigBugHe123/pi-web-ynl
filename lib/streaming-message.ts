@@ -1,4 +1,4 @@
-import type { ClientAssistantMessageEvent } from "./agent-event-wire";
+import { isAssistantContentUpdate, type ClientAssistantMessageEvent } from "./agent-event-wire";
 import { normalizeStreamingToolCalls } from "./normalize";
 import type {
   AgentMessage,
@@ -47,6 +47,7 @@ function applyDelta(
   state: StreamingState,
   event: ClientAssistantMessageEvent,
 ): StreamingState {
+  if (!isAssistantContentUpdate(event)) return state;
   switch (event.type) {
     case "text_start":
       // pi-ai documents `partial` as a shared live response-so-far helper, not

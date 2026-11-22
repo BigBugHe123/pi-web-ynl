@@ -4,8 +4,7 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-# No dependency runs install scripts. node-pty loads its prebuilt linux-x64 and linux-arm64
-# binaries without them, and the root postinstall only fixes macOS binaries.
+# Skip dependency install scripts in the container build.
 RUN npm ci --ignore-scripts
 
 COPY . .

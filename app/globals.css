@@ -368,7 +368,7 @@ html.dark {
 /* The ANSI palette extension output is drawn in (components/AnsiText.tsx): the
    terminal's light and dark palettes (lib/terminal-theme.ts), by the app's scheme.
    Extension UI gets pi's theme for a terminal that reports no colors, which
-   paints with these 16 (lib/extension-ui-theme.ts). */
+   paints with these 16 (Rust extension theme events). */
 :root {
   --ansi-black: #24292f;
   --ansi-red: #cf222e;

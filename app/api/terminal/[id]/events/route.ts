@@ -1,85 +1,74 @@
-import { pageStreamLabel, registerPageStream } from "@/lib/page-stream-registry";
-import { hasTerminal, subscribeTerminal, type TerminalEvent } from "@/lib/terminal-manager";
-
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+
+const backend = process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
 
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  if (!hasTerminal(id)) return new Response("Terminal not found", { status: 404 });
-  const cursor = req.headers.get("last-event-id") ?? new URL(req.url).searchParams.get("after");
-  const after = cursor !== null && /^\d+$/.test(cursor) && Number.isSafeInteger(Number(cursor))
-    ? Number(cursor) : undefined;
+  const target = new URL(`/api/v1/terminals/${encodeURIComponent(id)}/events`, backend);
+  const requestUrl = new URL(req.url);
+  const after = requestUrl.searchParams.get("after");
+  const holder = requestUrl.searchParams.get("holder");
+  if (after !== null) target.searchParams.set("after", after);
+  if (holder !== null) target.searchParams.set("holder", holder);
+  const headers = new Headers();
+  for (const name of ["last-event-id", "x-forwarded-for", "user-agent"]) {
+    const value = req.headers.get(name);
+    if (value !== null) headers.set(name, value);
+  }
 
-  let closeStream: (closeController: boolean) => void = () => {};
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const encoder = new TextEncoder();
-      let closed = false;
-      let heartbeat: ReturnType<typeof setInterval> | null = null;
-      let unsubscribe: (() => void) | null = null;
-      // The Debug panel's connected pages: which page holds this stream (`?holder=`).
-      const releasePage = registerPageStream(pageStreamLabel("terminal", req));
-      const cleanup = (closeController: boolean) => {
-        if (closed) return;
-        closed = true;
-        releasePage();
-        if (heartbeat) clearInterval(heartbeat);
-        unsubscribe?.();
-        req.signal.removeEventListener("abort", abort);
-        if (closeController) {
-          try { controller.close(); } catch { /* already closed */ }
-        }
-      };
-      const abort = () => cleanup(true);
-      const send = (event: TerminalEvent) => {
-        if (closed) return;
-        try {
-          if ((controller.desiredSize ?? 0) <= 0) {
-            cleanup(true);
-            return;
-          }
-          const eventId = event.type === "output" ? `id: ${event.offset}\n` : "";
-          controller.enqueue(encoder.encode(`${eventId}data: ${JSON.stringify(event)}\n\n`));
-          if (event.type === "exit" || event.type === "closed") cleanup(true);
-        } catch {
-          cleanup(false);
-        }
-      };
-      closeStream = cleanup;
-      const subscription = subscribeTerminal(id, send, after);
-      if (!subscription) {
-        cleanup(true);
-        return;
-      }
-      unsubscribe = subscription.unsubscribe;
-      controller.enqueue(encoder.encode(":\n\n"));
-      send(subscription.output);
-      if (subscription.exited) send({ type: "exit", exitCode: subscription.exitCode ?? 0 });
-      if (closed) return;
-      req.signal.addEventListener("abort", abort, { once: true });
-      if (req.signal.aborted) {
-        abort();
-        return;
-      }
-      heartbeat = setInterval(() => {
-        try {
-          if ((controller.desiredSize ?? 0) <= 0) cleanup(true);
-          else if (!closed) controller.enqueue(encoder.encode(":\n\n"));
-        } catch { cleanup(false); }
-      }, 30_000);
-    },
-    cancel() {
-      closeStream(false);
-    },
-  }, { highWaterMark: 256 * 1024, size: (chunk) => chunk.byteLength });
+  let response: Response;
+  try {
+    response = await fetch(target, { headers, cache: "no-store", signal: req.signal });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
+  }
+  if (!response.ok || !response.body) {
+    return new Response(response.body, {
+      status: response.status,
+      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
+    });
+  }
 
-  return new Response(stream, {
+  const reader = response.body.getReader();
+  let closed = false;
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    req.signal.removeEventListener("abort", onAbort);
+  };
+  const onAbort = () => {
+    cleanup();
+    void reader.cancel();
+  };
+  req.signal.addEventListener("abort", onAbort, { once: true });
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          cleanup();
+          controller.close();
+        } else {
+          controller.enqueue(chunk.value);
+        }
+      } catch (error) {
+        cleanup();
+        controller.error(error);
+      }
+    },
+    cancel(reason) {
+      cleanup();
+      return reader.cancel(reason);
+    },
+  });
+  return new Response(body, {
     headers: {
-      "Content-Type": "text/event-stream",
+      "Content-Type": response.headers.get("Content-Type") ?? "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",

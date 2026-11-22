@@ -3,6 +3,8 @@
 ## Status
 
 Accepted. Implemented in phases (see "Rollout"); P0, P1, and P2 are in place.
+
+> **Current status (2026-11-22):** This ADR records the original Pi Web TypeScript/SDK implementation. That backend has since been removed from `pi-web-ynl`: MCP configuration, connection tests, OAuth, and code-mode execution are now owned by `pi-rust-ynl/crates/pi-web-backend` and its Rust modules. References below to SDK internals, `lib/pi-sdk-internals.ts`, and Node-side file writers describe the historical implementation, not the current architecture. See [Pi Web and pi-rust backend](../pi-rust-backend-review.md) for the current boundary.
 Normal sessions load pi's built-in `codemode`, `tool-search`, and `mcp`
 extensions and connect the servers in the global `mcp.json` and in a trusted
 project's `.pi/mcp.json`. Settings › MCP lists, adds, switches, removes,

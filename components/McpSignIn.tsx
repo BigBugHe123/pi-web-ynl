@@ -37,7 +37,7 @@ function signInFailureText(failure: McpActionFailure, t: Translate, timedOutKey 
 /**
  * Settings › MCP's Sign-in row for an HTTP server: whether `mcp-auth.json`
  * holds tokens for it, Sign in and Sign out, and a sign-in under way
- * (`lib/mcp-sign-in.ts`, polled by the panel): what it is doing, then the
+ * (tracked by pi-web-backend and polled by the panel): what it is doing, then the
  * sign-in page as a link with the paste box always shown, since a browser on
  * another device cannot reach the loopback listener the page sends it back
  * to; and how it ended. Why a button cannot be used is visible text it points

@@ -1,12 +1,13 @@
 # Running Pi Web in Docker
 
-This project ships a production image and a Compose example. The image runs as the unprivileged `node` user, listens on port `30141` inside the container, and includes `bash` and `git` for Pi Web's terminal, shell, and Git features. The application itself does not require a Docker-specific environment variable to start; the image supplies its container bind address and port. The Compose example requires a password so the high-privilege UI is not accidentally exposed without authentication.
+This project ships a production image and a Compose example. The image runs the Next.js UI gateway as the unprivileged `node` user on port `30141`; the Rust `pi-web-backend` runs separately and owns the application backend. The Compose example requires a password so the high-privilege UI is not accidentally exposed without authentication.
 
 ## Start with Compose
 
 ```sh
 cp .env.example .env
 # Edit .env and set PI_WEB_PASSWORD to a long, unique secret.
+# Start pi-web-backend separately with the same PI_WEB_PASSWORD.
 mkdir -p workspace
 docker compose up --build -d
 ```
@@ -65,10 +66,14 @@ The Compose file explicitly sets the following:
 | `PI_WEB_NO_OPEN` | `1` | Prevents attempts to open a browser in the container. |
 | `PI_CODING_AGENT_DIR` | `/home/node/.pi/agent` | Explicitly points Pi and Pi Web at the persistent agent mount; normally this defaults to `$HOME/.pi/agent`. |
 | `PI_WEB_PASSWORD` | Required by the Compose interpolation | Enables browser password login. Use a strong secret. |
+| `PI_RUST_BACKEND_URL` | Defaults to `http://host.docker.internal:3030` | Server-side URL for `pi-web-backend`; the Rust process must use the same `PI_WEB_PASSWORD`. Set this to the Rust service name when both run in Compose. |
+| `PI_RUST_BACKEND_SAME_HOST` | Auto-detected for loopback and `host.docker.internal`; otherwise off | Override the Open in Explorer locality check. Set to `1` only if the Rust process can open the desktop file manager on the same computer as the browser; set to `0` to disable it. |
 | `PI_WEB_ALLOWED_HOSTS` | Optional, empty by default | Comma-separated, exact proxy/custom hostnames. Set this when a reverse proxy forwards a hostname not otherwise accepted by Pi Web. |
 | `PI_WEB_SKIP_VERSION_CHECK` | `1` | Disables the Pi Web update check in this deployment. |
 
 There are no model API keys required to start the web server. Configure provider credentials in the Models panel or persist an existing Pi agent directory. Provider API requests still require network access unless using a local provider.
+
+The Rust service is not bundled in this UI image. Run it separately, expose its port to the Pi Web container, and give both processes the same `PI_WEB_PASSWORD`; otherwise the UI fails closed with an authentication-backend error.
 
 Pass other supported variables through the service's `environment:` section. Compose uses `.env` for interpolation; adding a variable there alone does not pass it into the container. See [Docker's environment variable documentation](https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/). For example, add this entry alongside the existing environment entries in `compose.yaml`:
 

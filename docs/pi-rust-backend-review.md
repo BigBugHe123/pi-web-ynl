@@ -1,46 +1,19 @@
-# Pi Web and pi-rust backend review
-
-## Implementation status
-
-The first HTTP backend now lives in `pi-rust-yll-main/crates/pi-web-backend`. It keeps multiple `AgentSessionRuntime`s in one Rust process and exposes versioned session create/state/command/SSE endpoints. Pi Web's central agent client, new-session flow, event source, full-state reads, and lease renewal use same-origin `/api/v1/*` paths, which Next rewrites to this loopback-only service. Commands reuse YLL's `RpcCommand` JSON shape, plus Pi Web's `get_tools`, `set_tools`, `navigate_tree`, and `abort_compaction` operations.
-
-Run the Rust service from the YLL checkout with `cargo +1.98.1 run -p pi-web-backend` (default `127.0.0.1:3030`), then run Pi Web with `npm run dev` from its checkout. Set `NEXT_PUBLIC_PI_RUST_BACKEND_URL` in Pi Web's environment to change the backend URL.
-
-This is an agent-runtime integration, not a complete Rust-hosted Pi Web distribution. Next.js still serves the UI and its existing settings, auth, files, Git, terminal, MCP, plugin, and skill routes. Extension UI requests, live extension status/widgets, and a few lower-frequency RPC commands are not bridged yet. Pi Web's existing API routes that load the TypeScript SDK remain in place for those non-agent features.
+# Pi Web and pi-rust backend
 
 ## Current architecture
 
-- `pi-web-main` is a Next.js application. The browser calls same-origin `/api/*` routes; those routes use the embedded TypeScript `@earendil-works/pi-coding-agent` SDK.
-- Agent commands are wrapped by `lib/agent-client.ts`. Streaming is a separate `EventSource` connection from `hooks/useAgentSession.ts` to `/api/agent/[id]/events`.
-- New-session startup goes through `/api/agent/new`. Session browsing, settings, model/provider auth, files, Git, terminals, MCP, plugins, and skills use their own Next route handlers. There are 68 `app/api/**/route.ts` files.
-- `pi-rust-yll-main` reads/writes Pi-compatible configuration and JSONL session files. It provides `AgentSession` and `pi --mode rpc`; RPC accepts JSON commands on stdin and emits responses and session events as JSON lines.
-- YLL's `pi-server` is an experimental Chord service router, not an HTTP API. Its provided transport is Unix-domain sockets behind `cfg(unix)`, so it is not directly usable by the Windows/browser setup. `pi-chord` also has a generic WebSocket host, but it does not define the Pi Web REST/SSE contract.
+Pi Web keeps Next.js as the UI server and same-origin gateway. Browser calls to `/api/*` are validated and forwarded to `pi-rust-ynl/crates/pi-web-backend` using `PI_RUST_BACKEND_URL` (default `http://127.0.0.1:3030`). Rust owns session/runtime behavior and the former Pi Web backend operations, including agent-directory configuration, workspace files, Git/worktrees, password authentication decisions, VAPID/subscription storage, and app-update checks. Pi SDK packages are absent from the root manifests and lockfiles; production code and the demo do not import them.
 
-## Interface compatibility
+Rust owns session lifecycle, commands and SSE, session history and sidebar state, model configuration and enabled-model operations, provider credentials and OAuth, MCP configuration/connection/OAuth, project trust, skills, plugins, terminal processes, tool settings, subagent profile/settings files, default preferences, provider usage, cwd selection, file browsing and uploads, file indexing, Git status/diff, worktrees, bash output, push subscription storage, and app-update checks. Password verification, Basic auth, signed session tokens, and throttling also live in Rust. The API routes are registered in `pi-rust-ynl/crates/pi-web-backend/src/main.rs`; feature implementations live in adjacent Rust modules.
 
-| Concern | Pi Web currently expects | YLL already provides | Gap |
-| --- | --- | --- | --- |
-| Session runtime | One TypeScript `AgentSession` object managed by the Next server | Rust `AgentSession`; JSONL session format and config paths compatible with Pi | Runtime must be constructed in the Rust service or exposed over a network API |
-| Command transport | `POST /api/agent/[id]` with Pi Web command objects | `pi --mode rpc`: JSONL request/response protocol; many command names match Pi | Add HTTP/WebSocket transport and session routing |
-| Streaming | SSE records containing Pi JSON session events | Same event records on RPC stdout | Forward events over SSE/WebSocket; preserve reconnect and startup ordering |
-| Core commands | `prompt`, `abort`, state/model/thinking controls, bash, compaction, fork/clone, queue controls | RPC supports most standard Pi commands | The HTTP adapter covers core chat and Pi Web's tool/tree/compaction calls; a few RPC commands still return unsupported |
-| Extension UI | Pi Web calls its session API for extension responses and inputs | YLL RPC accepts extension UI response records and emits Pi events | HTTP UI request/response hosting remains to be added |
-| Session creation | Next route creates the SDK session and returns its ID/model | Rust can create/open a session in-process using `SessionManager` and `AgentSession` | Add create/open/list/close and working-directory validation to the web service |
-| Models and auth | Many Next routes use the TypeScript SDK for model catalogs, API keys, OAuth, and tests | YLL reads compatible `models.json`, `auth.json`, and settings | File compatibility helps, but OAuth/device login and model discovery APIs need explicit ownership or proxying |
-| Other UI APIs | Separate routes for files, Git, terminals, MCP, plugins, skills, worktrees, UI state, etc. | YLL libraries implement many corresponding local capabilities, not Pi Web's HTTP contract | Full Rust-hosted replacement is much larger than the agent API bridge |
+Next remains responsible for serving the React UI and acting as the same-origin gateway: it performs browser host/origin checks, adapts response details and streams, redirects to login, and sets or clears the HttpOnly auth cookie. The `/api/files` routes stream the Rust responses; authorization roots and file operations are Rust-owned. `open-in-explorer` is disabled when the configured Rust URL appears remote; set `PI_RUST_BACKEND_SAME_HOST=1` only when the Rust process can open the browser computer's desktop file manager. DOCX preview is a Rust OOXML implementation covering paragraphs, headings, basic emphasis, lists, tables, and embedded images; complex style mapping and some Word-specific constructs may differ from Mammoth. Push subscriptions are stored in Rust, but the removed Node completion sender had no production caller; current subscription registration does not imply that server-side completion alerts are dispatched.
 
-## Recommended boundary
+## Backend development
 
-Use one Rust web-service process that owns a map of session IDs to in-process YLL sessions. Each session gets its own Rust `AgentSession`/runtime, while all sessions share the service process and the configured Pi agent directory. Do not spawn one `pi` process per conversation.
+From the Rust workspace, run `cargo +1.98.1 run -p pi-web-backend` (default bind address `0.0.0.0:3030`). Run the UI from `pi-web-ynl` with `npm run dev`. Set `PI_RUST_BACKEND_URL` or `NEXT_PUBLIC_PI_RUST_BACKEND_URL` when the service is not at the default address.
 
-Expose a small versioned HTTP API for session creation/opening, command submission, session state, and an SSE event stream. Keep command/event JSON close to Pi RPC so the existing UI client needs only a transport adapter. Treat unsupported Pi Web-only commands as explicit capabilities rather than silently ignoring them.
+The Pi SDK is no longer a dependency of Pi Web, including development dependencies. Production runtime and configuration behavior belongs in Rust and should be exposed through a versioned backend route, with Next kept as the same-origin adapter where the browser needs one.
 
-## Scope and estimate
+## Remaining boundary
 
-- **Agent chat integration:** moderate. Add the Rust HTTP service, in-process multi-session lifecycle, event streaming, and an adapter for the centralized agent client plus the separate new-session and event-stream calls. Cover the Pi Web-only command gaps listed above.
-- **Rust service hosts the complete Pi Web app:** large. Pi Web is not a static SPA today: it has 68 server API route files and its Next build runs a Node server. Serving it from Rust requires either keeping Next as the UI/API host and proxying agent calls, or porting/replacing the wider route surface before the Rust service can host the full UI itself.
-- **Recommended delivery:** first build the Rust session/agent API and switch the frontend agent transport to it while retaining Next for existing non-agent endpoints. After the chat path works, decide which configuration/file routes should move into Rust. This gives YLL in-process multi-session execution without pretending every Pi Web setting is already supported by YLL.
-
-## Dependency
-
-Axum 0.8.9 was approved for the HTTP/SSE service and added as a workspace dependency.
+The Rust service does not serve the Next application itself. Next still serves the UI and retains thin same-origin route/proxy adapters because the browser uses the existing `/api/*` contract. Keep those adapters limited to request security, cookie/redirect handling, response compatibility, and streaming; new application state and filesystem operations belong in Rust.

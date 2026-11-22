@@ -85,6 +85,7 @@ function applyDelta(
         thinking: event.content,
       }));
     case "toolcall_start":
+      if (typeof event.contentIndex !== "number") return state;
       return updateContentBlock(state, event.contentIndex, (current) => {
         if (current?.type === "toolCall") {
           return {
@@ -105,6 +106,7 @@ function applyDelta(
         };
       });
     case "toolcall_delta":
+      if (typeof event.contentIndex !== "number") return state;
       return updateContentBlock(state, event.contentIndex, (current) => (
         current?.type === "toolCall"
           ? {

@@ -1,13 +1,11 @@
-import type {
-  AgentSessionEvent,
-  BashOperations,
-  SessionManager,
-  SettingsManager,
-  SlashCommandInfo,
-  Theme,
-} from "@earendil-works/pi-coding-agent";
-import type { AgentMessage as PiAgentMessage } from "@earendil-works/pi-agent-core";
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
+import type { AgentMessage as PiAgentMessage, ImageContent, TextContent } from "./types";
+
+type AgentSessionEvent = { type: string; [key: string]: unknown };
+type BashOperations = unknown;
+type SessionManager = unknown;
+type SettingsManager = unknown;
+type Theme = Record<string, unknown>;
+type SlashCommandInfo = { sourceInfo?: { source?: string; scope?: string } };
 
 export interface ContextUsage {
   percent: number | null;

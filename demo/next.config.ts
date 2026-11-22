@@ -10,7 +10,7 @@ const parentPackage = JSON.parse(readFileSync(join(configDir, "../package.json")
   version: string;
   dependencies?: Record<string, string>;
 };
-const piVersion = parentPackage.dependencies?.["@earendil-works/pi-coding-agent"] ?? "unknown";
+const piVersion = process.env.PI_RUST_BACKEND_VERSION ?? "unknown";
 
 // GitHub Pages serves a project site from /<repo>/. The workflow passes the
 // prefix in PAGES_BASE_PATH; local builds and `next dev` run at the root.

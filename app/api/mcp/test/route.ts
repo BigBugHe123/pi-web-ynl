@@ -1,36 +1,43 @@
 import { NextResponse } from "next/server";
-import type { McpErrorResponse, McpTestResponse } from "@/lib/api-types";
-import { isMcpEntryRefusal, readConnectableMcpEntry } from "@/lib/mcp-entry-request";
-import { testMcpServer } from "@/lib/mcp-test";
+import type { McpErrorResponse, McpRefusalReason, McpTestResponse } from "@/lib/api-types";
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
-// Settings › MCP's Test (ADR 0006): connects one server of the global
-// `mcp.json` or the panel's project `.pi/mcp.json` once, outside any session,
-// and answers with what it found (`lib/mcp-test.ts`). It starts a process or
-// contacts a URL, and may run a `!command` value, so it re-checks everything
-// a session's start would (`readConnectableMcpEntry()`, shared with sign-in):
-// MCP is not off, the entry is read from its file (never a config from the
-// browser) and valid, it does not reference PI_WEB_PASSWORD, and a project
-// entry's folder is allowed and trusted. A global stdio server runs in the
-// panel's project when it has one (checked like any cwd), else in the home
-// folder, which the answer names.
+const backend = process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function refusal(status: number, reason: McpRefusalReason, error: string) {
+  return NextResponse.json({ error, reason } satisfies McpErrorResponse, { status });
 }
 
 // POST /api/mcp/test body: { scope, name, cwd? }
-// `cwd` is the panel's project: required for a project server, and the
-// folder a global stdio server runs in.
+// Rust reads and validates the selected mcp.json entry before connecting.
 export async function POST(req: Request) {
-  const entry = await readConnectableMcpEntry(req);
-  if (isMcpEntryRefusal(entry)) return NextResponse.json(entry.body, { status: entry.status });
-  const { scope, name, sourcePath, configKey, config, cwd, internals } = entry;
+  if (!isApiRequestAllowed(req)) return refusal(403, "request-denied", "Untrusted API request");
+  if (!hasJsonContentType(req)) return refusal(415, "content-type", "Content-Type must be application/json");
+
+  let body: unknown;
   try {
-    const result = await testMcpServer({ scope, name, sourcePath, configKey, config, cwd }, internals, { signal: req.signal });
-    return NextResponse.json({ scope, name, configKey, result } satisfies McpTestResponse);
+    body = await req.json();
+  } catch {
+    return refusal(400, "invalid-request", "Invalid JSON body");
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return refusal(400, "invalid-request", "Expected a JSON object");
+  }
+
+  try {
+    const response = await fetch(new URL("/api/v1/mcp/test", backend), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: req.signal,
+      body: JSON.stringify(body),
+    });
+    const result = await response.json() as McpTestResponse | McpErrorResponse;
+    return NextResponse.json(result, { status: response.status });
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error), reason: "internal" } satisfies McpErrorResponse, { status: 500 });
+    return refusal(502, "internal", error instanceof Error ? error.message : String(error));
   }
 }

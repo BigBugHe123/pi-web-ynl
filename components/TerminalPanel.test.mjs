@@ -9,8 +9,8 @@ test("terminal errors preserve server diagnostics and explain non-JSON responses
     fetch.mock.mockImplementation(async () => new Response(body, { status: 500 }));
     await assert.rejects(terminalRequest("/api/terminal"), /HTTP 500.*pi-web server log/);
   }
-  fetch.mock.mockImplementation(async () => Response.json({ error: "Native module missing; run npm rebuild node-pty" }, { status: 500 }));
-  await assert.rejects(terminalRequest("/api/terminal"), /Native module missing; run npm rebuild node-pty/);
+  fetch.mock.mockImplementation(async () => Response.json({ error: "Rust terminal backend unavailable" }, { status: 500 }));
+  await assert.rejects(terminalRequest("/api/terminal"), /Rust terminal backend unavailable/);
 });
 
 test("a delayed input request cannot be overtaken by typing or resize", async (t) => {

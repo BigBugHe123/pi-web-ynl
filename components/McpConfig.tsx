@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, type Ref } from "react";
-import type { McpExposure } from "@earendil-works/pi-coding-agent";
+import type { McpExposure } from "@/lib/mcp-types";
 import type {
   CodemodeMode,
   McpActionResponse,

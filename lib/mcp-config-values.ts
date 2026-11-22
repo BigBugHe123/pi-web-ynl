@@ -3,9 +3,8 @@ import type { McpConfigFieldRef } from "./api-types";
 // Which values of an `mcp.json` entry pi resolves before it connects, and the
 // PI_WEB_PASSWORD rule over them. Client-safe, with no runtime imports: the
 // add pane (`components/mcp-add-helpers.ts`) previews and pre-blocks with the
-// same walk the server-side reader, the transport and the routes use
-// (re-exported by `lib/mcp-transport.ts`), so a change to which fields pi
-// resolves is made once.
+// same walk as a UI safeguard before submitting the candidate to Rust, so
+// users can see which fields pi resolves before the backend validates it.
 
 export const WEB_PASSWORD_VARIABLE = "PI_WEB_PASSWORD";
 

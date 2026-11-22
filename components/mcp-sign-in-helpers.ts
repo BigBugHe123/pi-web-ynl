@@ -20,7 +20,7 @@ import {
 // Pure helpers and requests for Settings › MCP's sign-in (components/McpSignIn.tsx):
 // what a flow says at each phase, why Sign in or Sign out cannot be used, and
 // the requests to `/api/mcp/sign-in` the panel polls a flow with. Client-safe:
-// types and fetch only. The flow itself lives on the server (`lib/mcp-sign-in.ts`).
+// types and fetch only. The flow itself lives in pi-web-backend.
 
 /** How often the panel asks where a sign-in stands. */
 export const MCP_SIGN_IN_POLL_MS = 1_000;

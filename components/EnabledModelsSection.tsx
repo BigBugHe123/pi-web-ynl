@@ -318,9 +318,8 @@ export function EnabledModelsProviderSwitchNote({
 /**
  * State for the "refresh catalog" button.
  *
- * pi's built-in model lists are frozen at the SDK version pi-web pins, so a
- * model a provider shipped after that release only appears once the pi.dev
- * catalog overlay has been fetched — see `lib/model-catalog-refresh.ts` (#914).
+ * Rust refreshes provider catalogs through `/api/v1/models/refresh`, so a
+ * provider's newer models can appear without a Pi Web release (#914).
  * The button is the whole feature: nothing refreshes catalogs on its own.
  */
 function useCatalogRefresh(providerId: string, onChanged: () => void) {

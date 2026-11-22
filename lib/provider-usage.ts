@@ -1,4 +1,3 @@
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ProviderUsageId } from "./provider-usage-ids";
 
 export { PROVIDER_USAGE_IDS, isProviderUsageId, type ProviderUsageId } from "./provider-usage-ids";
@@ -75,70 +74,6 @@ const CURRENCY: Record<"moonshotai" | "moonshotai-cn" | "minimax" | "minimax-cn"
   minimax: "USD",
   "minimax-cn": "CNY",
 };
-
-export async function queryProviderUsage(providerId: ProviderUsageId): Promise<ProviderUsageResult> {
-  const runtime = await ModelRuntime.create({ refreshOnCreate: false });
-  const provider = runtime.getProvider(providerId);
-  // Catalog providers such as opencode-go carry their base URL per model rather than on the
-  // provider, so fall back to the first model before rejecting a non-official origin.
-  const baseUrl = provider?.baseUrl ?? provider?.getModels()[0]?.baseUrl;
-  if (!provider || !isOfficialProviderUsageOrigin(providerId, baseUrl)) {
-    return { providerId, status: "query-failed", message: "The provider usage query failed." };
-  }
-  let resolved;
-  try {
-    resolved = await runtime.getAuth(providerId);
-  } catch {
-    return { providerId, status: "auth-unavailable", message: "Provider authentication is unavailable." };
-  }
-  if (!resolved) {
-    return { providerId, status: "auth-unavailable", message: "Connect this provider before querying usage." };
-  }
-
-  try {
-    const payload = await fetchJson(providerId, resolved.auth);
-    const capturedAt = Date.now();
-    return {
-      providerId,
-      status: "ready",
-      report: normalize(providerId, payload, capturedAt),
-    };
-  } catch {
-    return { providerId, status: "query-failed", message: "The provider usage query failed." };
-  }
-}
-
-async function fetchJson(providerId: ProviderUsageId, auth: {
-  apiKey?: string;
-  headers?: Record<string, string | null>;
-  baseUrl?: string;
-}): Promise<Record<string, unknown>> {
-  if (auth.baseUrl && !isOfficialProviderUsageOrigin(providerId, auth.baseUrl)) {
-    throw new Error("A custom provider origin cannot be used for official usage queries.");
-  }
-  const headers = new Headers();
-  for (const [name, value] of Object.entries(auth.headers ?? {})) {
-    if (typeof value === "string") headers.set(name, value);
-  }
-  if (!headers.has("authorization") && auth.apiKey) headers.set("Authorization", `Bearer ${auth.apiKey}`);
-
-  let endpoint = ENDPOINTS[providerId];
-  if (providerId === "minimax" || providerId === "minimax-cn") {
-    const token = bearerToken(headers.get("authorization")) ?? auth.apiKey;
-    endpoint += token?.startsWith("sk-api-") ? "/account/query_balance" : "/v1/token_plan/remains";
-  }
-  const response = await fetch(endpoint, {
-    headers,
-    redirect: "error",
-    signal: AbortSignal.timeout(15_000),
-  });
-  const body = await response.text();
-  if (body.length > 65_536) throw new Error("Usage response was too large.");
-  if (!response.ok) throw new Error(`Usage endpoint returned ${response.status}.`);
-  const parsed: unknown = JSON.parse(body);
-  if (!isRecord(parsed)) throw new Error("Usage response was not an object.");
-  return parsed;
-}
 
 export function isOfficialProviderUsageOrigin(providerId: ProviderUsageId, baseUrl: string | undefined): boolean {
   if (!baseUrl) return false;
@@ -406,11 +341,6 @@ function windowLabel(seconds: number | undefined): string {
   if (minutes >= 10_080) return "Weekly";
   if (minutes >= 60) return `${Math.round(minutes / 60)}h`;
   return `${minutes}m`;
-}
-
-function bearerToken(value: string | null): string | undefined {
-  const match = value?.match(/^Bearer\s+(.+)$/i);
-  return match?.[1];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

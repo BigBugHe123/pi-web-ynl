@@ -2,7 +2,7 @@
 
 [中文](./docs/CONTRIBUTING.zh-CN.md)
 
-Pi Web is a light web front end for the [pi coding agent](https://github.com/earendil-works/pi). It reads and writes the same agent directory as the pi CLI and runs sessions through pi's SDK. Most declined pull requests are well built but fall outside that scope, so please read this page before starting on a feature.
+Pi Web is a light web front end for the [pi coding agent](https://github.com/earendil-works/pi). It reads and writes the same agent directory as the pi CLI and runs sessions through the Rust backend in `pi-rust-ynl`; Pi Web no longer depends on the Pi TypeScript SDK. Next serves the browser UI and adapts same-origin API requests to Rust. Most declined pull requests are well built but fall outside that scope, so please read this page before starting on a feature.
 
 ## What Pi Web is for
 

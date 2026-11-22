@@ -1,19 +1,22 @@
-import { buildApiKeyProviderList, buildOAuthProviderList } from "@/lib/provider-listing";
-import { collectProviderListingInputs } from "@/lib/provider-listing-runtime";
-import { getModelRuntimeWithExtensions } from "@/lib/model-runtime";
+import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-// Providers that declare an OAuth login method, including anthropic
-// (Claude Pro/Max) — see lib/provider-listing.ts (#309).
-export async function GET() {
-  const modelRuntime = await getModelRuntimeWithExtensions();
-  const inputs = await collectProviderListingInputs(modelRuntime);
-  const oauthProviders = buildOAuthProviderList(inputs);
-  const apiKeyProviders = buildApiKeyProviderList(inputs);
-  // Every runtime provider, not only those with a chat model: the Models
-  // sidebar also labels a configured provider with no models (e.g. a
-  // classifier-only built-in such as TypeSafe).
-  const providerNames = Object.fromEntries(inputs.map((provider) => [provider.id, provider.name]));
-  return Response.json({ providers: oauthProviders, oauthProviders, apiKeyProviders, providerNames });
+const backend = process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
+
+export async function GET(request: Request) {
+  try {
+    const response = await fetch(new URL("/api/v1/auth/providers", backend), {
+      cache: "no-store",
+      signal: request.signal,
+    });
+    return new Response(response.body, {
+      status: response.status,
+      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
 }

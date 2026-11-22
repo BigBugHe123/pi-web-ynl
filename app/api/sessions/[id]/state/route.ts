@@ -1,24 +1,17 @@
 import { NextResponse } from "next/server";
-import { getRpcSession } from "@/lib/rpc-manager";
-import { resolveSessionPath } from "@/lib/session-reader";
+
+const backend = process.env.PI_RUST_BACKEND_URL ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL ?? "http://127.0.0.1:3030";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
   try {
-    const rpc = getRpcSession(id);
-    if (rpc?.isAlive()) {
-      const state = await rpc.send({ type: "get_state" });
-      return NextResponse.json({ running: true, state });
-    }
-
-    if (!await resolveSessionPath(id)) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
-    return NextResponse.json({ running: false });
+    const target = new URL(`/api/v1/sessions/${encodeURIComponent(id)}/state`, backend);
+    const response = await fetch(target, { cache: "no-store", signal: req.signal });
+    return new Response(response.body, { status: response.status, headers: response.headers });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
   }
 }

@@ -1,58 +1,33 @@
-import { NextResponse } from "next/server";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import {
-  readSubagentSettings,
-  MAX_SUBAGENT_MAX_CONCURRENT,
-  writeBuiltInSubagentsEnabled,
-  writeSubagentMaxConcurrent,
-} from "@/lib/subagent-settings";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+const backend = process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
+
+async function forward(method: "GET" | "PUT", req?: Request): Promise<Response> {
   try {
-    const settings = readSubagentSettings();
-    return NextResponse.json({ enabled: settings.builtInEnabled, maxConcurrent: settings.maxConcurrent });
+    const response = await fetch(new URL("/api/v1/subagents/settings", backend), {
+      method,
+      ...(req ? { headers: { "content-type": "application/json" }, body: await req.text(), signal: req.signal } : {}),
+      cache: "no-store",
+    });
+    return new Response(response.body, {
+      status: response.status,
+      headers: { "content-type": response.headers.get("content-type") ?? "application/json", "cache-control": "no-store" },
+    });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
-    );
+    return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
   }
 }
 
-export async function PUT(req: Request) {
-  if (!isApiRequestAllowed(req)) {
-    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
-  }
-  if (!hasJsonContentType(req)) {
-    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
-  }
+export async function GET() {
+  return forward("GET");
+}
 
-  try {
-    const body = await req.json() as { enabled?: unknown; maxConcurrent?: unknown };
-    if (body.enabled === undefined && body.maxConcurrent === undefined) {
-      return NextResponse.json({ error: "enabled or maxConcurrent is required" }, { status: 400 });
-    }
-    if (body.enabled !== undefined && typeof body.enabled !== "boolean") {
-      return NextResponse.json({ error: "enabled must be a boolean" }, { status: 400 });
-    }
-    if (body.maxConcurrent !== undefined && (
-      typeof body.maxConcurrent !== "number"
-      || !Number.isInteger(body.maxConcurrent)
-      || body.maxConcurrent < 1
-      || body.maxConcurrent > MAX_SUBAGENT_MAX_CONCURRENT
-    )) {
-      return NextResponse.json({ error: `maxConcurrent must be an integer between 1 and ${MAX_SUBAGENT_MAX_CONCURRENT}` }, { status: 400 });
-    }
-    let settings = readSubagentSettings();
-    if (body.enabled !== undefined) settings = writeBuiltInSubagentsEnabled(body.enabled);
-    if (body.maxConcurrent !== undefined) settings = writeSubagentMaxConcurrent(body.maxConcurrent);
-    return NextResponse.json({ enabled: settings.builtInEnabled, maxConcurrent: settings.maxConcurrent });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
-    );
-  }
+export async function PUT(req: Request) {
+  if (!isApiRequestAllowed(req)) return Response.json({ error: "Untrusted API request" }, { status: 403 });
+  if (!hasJsonContentType(req)) return Response.json({ error: "Content-Type must be application/json" }, { status: 415 });
+  return forward("PUT", req);
 }

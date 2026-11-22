@@ -21,11 +21,11 @@ import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thin
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionContent, skillExpansionToCommand } from "@/lib/slash-display";
-import type { SubagentToolDetails } from "@/lib/subagent-extension";
+import type { SubagentToolDetails } from "@/lib/api-types";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
 import { toolFieldsOfInput, toolInputPreview, type ToolField } from "@/lib/tool-fields";
-import { parseStreamingJson } from "@earendil-works/pi-ai/utils/json-parse";
+import { parseStreamingJson } from "@/lib/streaming-json";
 import { mcpToolLabel, prettyMcpResultText } from "@/lib/mcp-tool-display";
 import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
 import { formatNoticeTokens, getTranscriptNotices } from "@/lib/transcript-notices";
@@ -1274,7 +1274,7 @@ function ToolCallBlock({ block, result, notRun, duration, clock, onOpenSubagent,
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = (result?.isError ?? false)
     || (isApplyPatchToolName(block.toolName) && applyPatchResultHasFailures(result?.details));
-  const subagent = isSubagentToolDetails(result?.details) ? result.details : null;
+  const subagent = result && isSubagentToolDetails(result.details) ? result.details : null;
   const codemodeCallCount = codemode ? codemode.calls.length + codemode.omitted : 0;
 
   return (

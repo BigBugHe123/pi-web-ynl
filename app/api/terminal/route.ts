@@ -1,11 +1,11 @@
-import { stat } from "fs/promises";
-import { resolve } from "path";
 import { NextResponse } from "next/server";
-import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
-import { createTerminal } from "@/lib/terminal-manager";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const backend = process.env.PI_RUST_BACKEND_URL
+  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+  ?? "http://127.0.0.1:3030";
 
 export async function POST(req: Request) {
   try {
@@ -16,21 +16,22 @@ export async function POST(req: Request) {
     if (typeof body.cwd !== "string" || !body.cwd.trim()) {
       return NextResponse.json({ error: "cwd required" }, { status: 400 });
     }
-    const cwd = resolve(body.cwd);
-    if (!(await stat(cwd)).isDirectory()) {
-      return NextResponse.json({ error: "cwd must be a directory" }, { status: 400 });
-    }
-    const roots = await getAllowedFileRoots();
-    if (!isExistingFilePathAllowed(cwd, roots)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
-    const id = createTerminal(
-      cwd,
-      typeof body.cols === "number" ? body.cols : 80,
-      typeof body.rows === "number" ? body.rows : 24,
-      body.id as string | undefined,
-    );
-    return NextResponse.json({ id });
+    const response = await fetch(new URL("/api/v1/terminals", backend), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: body.id,
+        cwd: body.cwd,
+        cols: typeof body.cols === "number" ? body.cols : 80,
+        rows: typeof body.rows === "number" ? body.rows : 24,
+      }),
+      cache: "no-store",
+      signal: req.signal,
+    });
+    return new Response(response.body, {
+      status: response.status,
+      headers: { "Content-Type": response.headers.get("Content-Type") ?? "application/json" },
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }

@@ -1,7 +1,5 @@
-// Client-safe: the transcript notices pi's TUI shows under `showCacheMissNotices`
-// (#1265). The server derives them from the session entries
-// (lib/transcript-notices-server.ts) and hangs them on the chat message they
-// follow; the chat renders them as one line each.
+// Client-safe presentation for transcript notice metadata. The chat renders
+// each notice as one line below the message it describes.
 
 export type TranscriptNotice =
   /** An assistant response re-billed prompt tokens a cache should have served. */

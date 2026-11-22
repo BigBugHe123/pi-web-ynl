@@ -74,7 +74,7 @@ import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@
 import type { McpErrorResponse, ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { AgentEndInfo, NewSessionChoices } from "@/hooks/useAgentSession";
-import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { SessionStatsInfo } from "@/lib/api-types";
 import { formatActiveDuration, formatCompactCount, formatCostShort } from "@/lib/session-stats-format";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
@@ -961,7 +961,10 @@ export function AppShell() {
       // the default welcome page when none is remembered.
       if (!skipWorkspaceRestore) restoreWorkspaceContext(newProject, cwd);
     }
-    router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
+    // Keep the selected project in the URL while the composer is fresh. A
+    // project change has no session id to restore from, so dropping `cwd`
+    // here makes a page refresh fall back to the empty home state.
+    router.replace(`?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
   }, [activeCwd, changeFileWorkspace, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number, options?: SelectSessionOptions) => {
@@ -1584,7 +1587,12 @@ export function AppShell() {
     })
       .then(async (response) => {
         const data = await response.json() as ProjectTrustStatus & { error?: string };
-        if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
+        if (!response.ok || data.error) {
+          // A saved session can outlive its workspace directory. Keep its
+          // transcript usable, but there is no project trust state to load.
+          if (response.status === 400 && data.error?.startsWith("Directory does not exist:")) return;
+          throw new Error(data.error ?? `HTTP ${response.status}`);
+        }
         setProjectTrust(data);
       })
       .catch((error) => {

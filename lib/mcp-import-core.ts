@@ -1,4 +1,4 @@
-import type { McpExposure, McpServerConfig } from "@earendil-works/pi-coding-agent";
+import type { McpExposure, McpServerConfig } from "./mcp-types";
 import { isSecretName, maskArgs, maskUrl, SECRET_MASK } from "./mcp-secrets";
 
 // Shared parts of the paste importer (`lib/mcp-import.ts`): the result types,

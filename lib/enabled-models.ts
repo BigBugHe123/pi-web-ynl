@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Editing of the `enabledModels` setting for the Models panel.
  *
  * `enabledModels` is a whitelist of pi `--models` patterns, so turning one
@@ -24,7 +24,7 @@
  * The functions are pure: pattern matching itself (minimatch globs, fuzzy
  * matching, alias preference, `:level` suffixes) belongs to the SDK resolver
  * and reaches this module as a pre-computed `PatternResolution[]`. See
- * `lib/enabled-models-runtime.ts`.
+ * Rust-backed settings API.
  */
 
 /** How one configured pattern resolves against the available models. */
@@ -46,7 +46,7 @@ export interface EnabledModelsInput {
   resolutions: readonly PatternResolution[];
   /**
    * Per provider, a glob **verified** to match exactly that provider's
-   * available models — nothing more, nothing less.
+   * available models 鈥?nothing more, nothing less.
    *
    * Never assume `provider/*` here: minimatch's `*` does not cross `/`, so that
    * glob silently misses every model whose id contains a slash
@@ -61,11 +61,11 @@ export interface EnabledModelsState {
   allEnabled: boolean;
   /** Enabled references, restricted to what is available right now. */
   enabled: string[];
-  /** `provider/modelId` → thinking level pinned by a `:level` pattern. */
+  /** `provider/modelId` 鈫?thinking level pinned by a `:level` pattern. */
   pins: Record<string, string>;
   /**
    * Patterns that match no available model, so nothing here can tell what they
-   * were for — a provider without a usable credential, a renamed or deleted
+   * were for 鈥?a provider without a usable credential, a renamed or deleted
    * model, a typo, another machine's config. Preserved by every edit but `prune`.
    */
   stalePatterns: string[];
@@ -256,8 +256,7 @@ function serialize(entries: readonly Entry[], input: EnabledModelsInput): string
   const hasPins = entries.some((entry) => entry.pin);
   const enabled = new Set(enabledRefs(entries));
   const coversEverything = input.availableRefs.every((ref) => enabled.has(ref));
-  // Drop the setting entirely once it stops narrowing anything, like the TUI —
-  // but never when it would discard stale entries or a thinking pin.
+  // Drop the setting entirely once it stops narrowing anything, like the TUI 鈥?  // but never when it would discard stale entries or a thinking pin.
   if (coversEverything && !hasStale && !hasPins) return undefined;
   return entries.map((entry) => entry.pattern);
 }
@@ -356,7 +355,7 @@ const THINKING_LEVEL_SUFFIXES = new Set(["off", "minimal", "low", "medium", "hig
  * A model renamed in the panel is a known fact, not the kind of mismatch worth
  * preserving: leaving `stepfun/ddd` behind after it became `stepfun/ddd1` loses
  * the selection, and when it was the only entry the whole scope resolves to
- * nothing — which pi reads as "no scope", silently enabling every model.
+ * nothing 鈥?which pi reads as "no scope", silently enabling every model.
  *
  * Applied before the provider rewrite, so `from` is the reference as the
  * settings file still spells it and `to` is where it ends up.
@@ -411,8 +410,7 @@ export function renameProviderPatterns(
  * provider to `stepfun` made its glob reach into `commandcode`, which silently
  * enabled three of its models.
  *
- * An entry that still matches nothing inside its own provider is left alone —
- * it may be a bare model id that only looks like a prefix.
+ * An entry that still matches nothing inside its own provider is left alone 鈥? * it may be a bare model id that only looks like a prefix.
  */
 export function constrainProviderEntries(input: EnabledModelsInput): EnabledModelsEdit {
   const providers = new Set(providerOrder(input.availableRefs));

@@ -2,7 +2,7 @@
 
 [English](../CONTRIBUTING.md)
 
-Pi Web 是 [pi coding agent](https://github.com/earendil-works/pi) 的轻量网页前端：它和 pi CLI 读写同一个 agent 目录，通过 pi 的 SDK 运行会话。被拒的 PR 大多不是做得不好，而是超出了这个范围，所以开始做新功能之前请先读一下这一页。
+Pi Web 是 [pi coding agent](https://github.com/earendil-works/pi) 的轻量网页前端：它和 pi CLI 读写同一个 agent 目录，通过 `pi-rust-ynl` 的 Rust 后端运行会话。Pi Web 不再依赖 Pi TypeScript SDK；Next 负责网页 UI，并将同源 API 请求适配到 Rust。被拒的 PR 大多不是做得不好，而是超出了这个范围，所以开始做新功能之前请先读一下这一页。
 
 ## Pi Web 做什么
 

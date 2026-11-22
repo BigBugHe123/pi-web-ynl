@@ -1,65 +1,46 @@
 import { NextResponse } from "next/server";
-import {
-  attachSessionProjectInfo,
-  getSessionListVersion,
-  listAllSessions,
-  listSessionSummaries,
-  mergeSessionLists,
-} from "@/lib/session-reader";
-import {
-  getAwaitingInputRpcSessionIds,
-  getCompletionNotificationSuppressedRpcSessionIds,
-  getRpcSessionInfos,
-  getRunningRpcSessionIds,
-  withSubagentDisplayStatus,
-} from "@/lib/rpc-manager";
 import { startServerPerf } from "@/lib/perf";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   const perf = startServerPerf("GET /api/sessions");
+  const searchParams = new URL(req.url).searchParams;
+  const rustBackend = process.env.PI_RUST_BACKEND_URL
+    ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
+    ?? "http://127.0.0.1:3030";
+  const url = new URL(`${rustBackend.replace(/\/$/, "")}/api/v1/sessions`);
+  for (const key of ["force", "summary"]) {
+    const value = searchParams.get(key);
+    if (value !== null) url.searchParams.set(key, value);
+  }
   try {
-    const searchParams = new URL(req.url).searchParams;
-    const force = searchParams.get("force") === "1";
-    // `summary=1` serves header/stat metadata so the sidebar can paint without
-    // waiting for every session transcript to be parsed.
-    const summary = searchParams.get("summary") === "1";
-    perf?.span("start");
-    const persistedSessionsPromise = summary
-      ? listSessionSummaries()
-      : listAllSessions({ force });
-    // Capture before awaiting: mutations during the scan still require a later refresh.
-    const sessionListVersion = getSessionListVersion();
-    const [persistedSessions, runtimeSessions] = await Promise.all([
-      persistedSessionsPromise,
-      attachSessionProjectInfo(getRpcSessionInfos()),
+    const [catalogResponse, rustRunning] = await Promise.all([
+      fetch(url, { cache: "no-store", signal: AbortSignal.timeout(10_000) }),
+      fetch(`${rustBackend.replace(/\/$/, "")}/api/v1/sessions/running`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(1_000),
+      }).then((response) => response.ok
+        ? response.json() as Promise<{ sessionListVersion?: number; runningSessionIds?: string[]; awaitingInputSessionIds?: string[] }>
+        : null).catch(() => null),
     ]);
-    perf?.span("scan+projects");
-    const sessions = withSubagentDisplayStatus(mergeSessionLists(persistedSessions, runtimeSessions));
-    return perf?.attach(NextResponse.json(
-      {
-        sessions,
-        sessionListVersion,
-        runningSessionIds: getRunningRpcSessionIds(),
-        awaitingInputSessionIds: getAwaitingInputRpcSessionIds(),
-        completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
-      },
-      { headers: { "Cache-Control": "no-store" } },
-    )) ?? NextResponse.json(
-      {
-        sessions,
-        sessionListVersion,
-        runningSessionIds: getRunningRpcSessionIds(),
-        awaitingInputSessionIds: getAwaitingInputRpcSessionIds(),
-        completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
-      },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    if (!catalogResponse.ok) {
+      return NextResponse.json({ error: `Rust session catalogue failed (${catalogResponse.status})` }, {
+        status: 502,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+    const catalog = await catalogResponse.json() as { sessions?: unknown[]; sessionListVersion?: number };
+    const body = {
+      sessions: catalog.sessions ?? [],
+      sessionListVersion: catalog.sessionListVersion ?? 0,
+      runningSessionIds: rustRunning?.runningSessionIds ?? [],
+      awaitingInputSessionIds: rustRunning?.awaitingInputSessionIds ?? [],
+      completionNotificationSuppressedSessionIds: [] as string[],
+    };
+    return perf?.attach(NextResponse.json(body, { headers: { "Cache-Control": "no-store" } }))
+      ?? NextResponse.json(body, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json(
-      { error: String(error) },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json({ error: String(error) }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 }
