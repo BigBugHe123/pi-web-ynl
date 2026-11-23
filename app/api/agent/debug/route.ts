@@ -1,10 +1,9 @@
+import { backendUrl } from "@/lib/server/backend-url";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 const MAX_SESSION_ID_LENGTH = 512;
-const backend = process.env.PI_RUST_BACKEND_URL
-  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
-  ?? "http://127.0.0.1:3030";
+const backend = backendUrl();
 
 // GET /api/agent/debug?session=<id> - Rust owns the process snapshot and open-stream registry.
 export async function GET(req: Request) {

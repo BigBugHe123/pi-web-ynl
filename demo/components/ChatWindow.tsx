@@ -22,7 +22,7 @@ import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAg
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
-import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { SessionStatsInfo } from "@/lib/api-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";

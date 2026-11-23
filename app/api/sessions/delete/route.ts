@@ -1,3 +1,4 @@
+import { backendUrl } from "@/lib/server/backend-url";
 import { NextResponse } from "next/server";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { MAX_SESSION_DELETE_IDS, type SessionDeleteResult } from "@/lib/session-delete-types";
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
   if (!ids.every((id) => typeof id === "string" && SESSION_ID_PATTERN.test(id))) return refusal(400, "ids must be session ids");
 
   try {
-    const backend = process.env.PI_RUST_BACKEND_URL ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL ?? "http://127.0.0.1:3030";
+    const backend = backendUrl();
     const response = await fetch(new URL("/api/v1/sessions/delete", backend), {
       method: "POST",
       headers: { "content-type": "application/json" },

@@ -1,5 +1,5 @@
 ﻿import type { McpImportNote } from "./mcp-import-core";
-import type { SubagentSessionStatus } from "./types";
+import type { SessionInfo, SubagentSessionStatus } from "./types";
 
 export type McpExposure = "codemode" | "deferred" | "direct" | "hidden";
 
@@ -83,6 +83,21 @@ export interface SessionStatsInfo {
   cost: number;
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null };
   totalActiveMs?: number;
+}
+
+export interface SessionSearchResult {
+  session: SessionInfo;
+  entryId?: string;
+  blockIndex: number;
+  titleMatch?: boolean;
+  before: string;
+  match: string;
+  after: string;
+}
+
+export interface SessionSearchResponse {
+  results: SessionSearchResult[];
+  truncated: boolean;
 }
 
 /** Code mode's one choice (ADR 0006): Automatic writes nothing, Always on adds `+codemode` to the global defaultTools. */

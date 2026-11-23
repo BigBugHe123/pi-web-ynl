@@ -5,10 +5,9 @@ const { spawn } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { getOpenUrl } = require("./run-records");
 
-// Next.js prints "Ready" before it has loaded its request handlers, and the
-// first request then also waits out the pi SDK import that instrumentation
-// starts (#964): half a second on macOS, seconds on a slow disk, and a first
-// navigation that outlasts the service worker's 8 s timeout shows
+// Next.js prints "Ready" before it has loaded its request handlers. Waiting
+// for the first page avoids opening the browser during a cold route compile,
+// which can outlast the service worker's 8 s timeout and show
 // offline.html (#1358). Past this limit the browser opens anyway.
 const FIRST_PAGE_TIMEOUT_MS = 30_000;
 const FIRST_PAGE_RETRY_MS = 250;
@@ -44,8 +43,7 @@ function openInBrowser(url, platform = process.platform) {
 // Resolves true once url has answered a GET with any HTTP status and the whole
 // body has arrived, or false when nothing answered within timeoutMs. Never
 // rejects. Redirects are followed: with PI_WEB_PASSWORD, / redirects to /login,
-// the page the browser lands on, and the proxy sends that redirect while the
-// pi SDK import is still running.
+// the page the browser lands on.
 async function waitForFirstPage(url, {
   fetchImpl = fetch,
   timeoutMs = FIRST_PAGE_TIMEOUT_MS,

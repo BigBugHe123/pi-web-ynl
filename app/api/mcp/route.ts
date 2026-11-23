@@ -1,11 +1,10 @@
+import { backendUrl } from "@/lib/server/backend-url";
 import { NextResponse } from "next/server";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
-const rustBackend = process.env.PI_RUST_BACKEND_URL
-  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
-  ?? "http://127.0.0.1:3030";
+const rustBackend = backendUrl();
 
 function backendError(status: number, error: unknown) {
   return NextResponse.json({ error: error instanceof Error ? error.message : String(error), reason: "internal" }, { status });

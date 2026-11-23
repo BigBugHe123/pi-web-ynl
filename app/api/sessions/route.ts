@@ -1,3 +1,4 @@
+import { backendUrl } from "@/lib/server/backend-url";
 import { NextResponse } from "next/server";
 import { startServerPerf } from "@/lib/perf";
 
@@ -6,9 +7,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const perf = startServerPerf("GET /api/sessions");
   const searchParams = new URL(req.url).searchParams;
-  const rustBackend = process.env.PI_RUST_BACKEND_URL
-    ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
-    ?? "http://127.0.0.1:3030";
+  const rustBackend = backendUrl();
   const url = new URL(`${rustBackend.replace(/\/$/, "")}/api/v1/sessions`);
   for (const key of ["force", "summary"]) {
     const value = searchParams.get(key);

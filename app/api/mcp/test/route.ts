@@ -1,12 +1,11 @@
+import { backendUrl } from "@/lib/server/backend-url";
 import { NextResponse } from "next/server";
 import type { McpErrorResponse, McpRefusalReason, McpTestResponse } from "@/lib/api-types";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
-const backend = process.env.PI_RUST_BACKEND_URL
-  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
-  ?? "http://127.0.0.1:3030";
+const backend = backendUrl();
 
 function refusal(status: number, reason: McpRefusalReason, error: string) {
   return NextResponse.json({ error, reason } satisfies McpErrorResponse, { status });

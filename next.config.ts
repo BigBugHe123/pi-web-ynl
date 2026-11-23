@@ -5,17 +5,6 @@ import { fileURLToPath } from "url";
 
 const configDir = dirname(fileURLToPath(import.meta.url));
 const { version } = JSON.parse(readFileSync(join(configDir, "package.json"), "utf8")) as { version: string };
-const rustBackend = process.env.PI_RUST_BACKEND_URL
-  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
-  ?? "http://127.0.0.1:3030";
-let piVersion = process.env.PI_RUST_BACKEND_VERSION ?? "unknown";
-if (!process.env.PI_RUST_BACKEND_VERSION) {
-  try {
-    const cargo = readFileSync(join(configDir, "..", "pi-rust-ynl", "Cargo.toml"), "utf8");
-    piVersion = cargo.match(/^\[workspace\.package\][\s\S]*?^version\s*=\s*"([^"]+)"/m)?.[1] ?? piVersion;
-  } catch { /* deployment may build the Web and Rust backend separately */ }
-}
-
 // mdast-util-gfm-autolink-literal (remark-gfm) ships a RegExp lookbehind that
 // Safari parses only from 16.4, which blanked `/` on iOS 16.2 (#753). The loader
 // swaps it for an equivalent built at runtime; both bundlers must run it.
@@ -103,7 +92,7 @@ const nextConfig: NextConfig = {
   },
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
-    NEXT_PUBLIC_PI_VERSION: piVersion,
+    NEXT_PUBLIC_PI_VERSION: process.env.PI_RUST_BACKEND_VERSION ?? "unknown",
   },
 };
 

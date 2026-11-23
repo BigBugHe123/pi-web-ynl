@@ -22,6 +22,8 @@ Typecheck: `node_modules/.bin/tsc --noEmit` 路 Lint: `npm run lint`
 
 Pi runtime and application backend behavior belongs to `pi-rust-ynl/crates/pi-web-backend`, including Pi configuration, workspace files/Git/worktrees, authentication decisions, push subscription storage, and app-update checks. The Pi TypeScript SDK is no longer a dependency in the root manifests or lockfiles. Next remains the browser/UI server and thin same-origin gateway for request checks, cookies/redirects, response adaptation and streaming. See [the current backend architecture](docs/pi-rust-backend-review.md).
 
+The Web package is an independent Next.js application and must build without reading sibling Rust workspace files. `app/api` contains same-origin BFF adapters; keep business logic and persistence in Rust. Use npm and `package-lock.json` as the single package-management source of truth.
+
 ---
 
 ## Architecture

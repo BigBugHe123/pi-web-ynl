@@ -1,4 +1,5 @@
-const backend = process.env.PI_RUST_BACKEND_URL ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL ?? "http://127.0.0.1:3030";
+import { backendUrl } from "@/lib/server/backend-url";
+const backend = backendUrl();
 
 export async function GET(
   req: Request,

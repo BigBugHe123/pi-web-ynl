@@ -29,7 +29,7 @@ export interface DebugWrapperRun {
 }
 
 export interface DebugWrapperIdle {
-  /** `PI_WEB_IDLE_TIMEOUT_MS` in effect; 0 = disabled (Stop still arms its forced deadline). */
+  /** Backend-reported session idle timeout; 0 means disabled. */
   timeoutMs: number;
   /**
    * When the idle timer fires next. A check, not a close: a run, an extension's liveness
@@ -143,7 +143,7 @@ export interface DebugMcpHost {
   active: boolean;
   disposed: boolean;
   runActive: boolean;
-  /** `PI_WEB_MCP_IDLE_MS`; 0 = never released. */
+  /** Backend-reported idle release interval; 0 means never released. */
   idleMs: number;
   /** When idle servers are let go; null while a run is active or nothing is connected. */
   idleReleaseAt: number | null;

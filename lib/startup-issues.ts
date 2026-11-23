@@ -17,9 +17,9 @@ interface Diagnostic {
 }
 
 export interface StartupIssueSources {
-  /** `createAgentSessionServices().diagnostics`: extension providers that failed to register, flags. */
+  /** Rust agent initialization diagnostics for failed extension providers. */
   diagnostics?: readonly Diagnostic[];
-  /** `resourceLoader.getExtensions()`: extensions that failed to load or conflict, and their warnings. */
+  /** Rust resource-loader failures and warnings for extensions. */
   extensions?: {
     errors?: readonly { path: string; error: string }[];
     warnings?: readonly { path: string; warning: string }[];

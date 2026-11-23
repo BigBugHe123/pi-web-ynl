@@ -7,7 +7,7 @@ import { projectNameOf } from "@/lib/session-tree";
 import { sideChatHit } from "@/lib/session-search-hit";
 import type { SessionInfo } from "@/lib/types";
 import { workspaceKeyOf } from "@/lib/workspace-memory";
-import type { SessionSearchResponse } from "@/lib/session-search";
+import type { SessionSearchResponse } from "@/lib/api-types";
 
 export function SessionSearch({ open, query, children, selectedSessionId, onSelectSession, onSelectSideChat, sessions, archivedSessionIds, projectNames }: {
   open: boolean;

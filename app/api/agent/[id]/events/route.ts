@@ -1,7 +1,8 @@
+import { backendUrl } from "@/lib/server/backend-url";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
-const backend = process.env.PI_RUST_BACKEND_URL ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL ?? "http://127.0.0.1:3030";
+const backend = backendUrl();
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

@@ -27,6 +27,8 @@ Pi Web 要求 Node.js 22.19.0 或更高版本。先用 `node --version` 检查�
 npx @agegr/pi-web@latest
 ```
 
+这个 npm 包只包含 Next.js 界面和同源 API 网关。请先单独启动 Rust `pi-web-backend`（默认地址 `http://127.0.0.1:3030`）；后端不由 Web 包打包或启动。后端地址不同时，在 Pi Web 进程设置 `PI_RUST_BACKEND_URL`。若启用密码认证，两个进程必须设置相同的 `PI_WEB_PASSWORD`。参见[后端架构与启动说明](./pi-rust-backend-review.md)。
+
 服务就绪后，命令行会尝试自动打开浏览器。如果没有打开，请访问 [http://127.0.0.1:30141](http://127.0.0.1:30141)。Pi Web 默认仅监听 `127.0.0.1`。
 
 如果尚未配置模型 Provider，请打开**模型（Models）**面板登录或添加 API Key。
@@ -64,9 +66,8 @@ pi-web update [--check] # 更新全局 npm 安装
 | `PI_WEB_SKIP_VERSION_CHECK=1` | 关闭 Pi Web 的更新检查 | 未设置 |
 | `PI_WEB_ALLOWED_HOSTS` | 额外允许的代理或自定义主机名，多个值用逗号分隔，必须精确匹配 | 未设置 |
 | `PI_WEB_PASSWORD` | 启用浏览器密码登录；API 客户端可使用用户名为 `pi` 的 Basic Auth | 不启用认证 |
-| `PI_WEB_IDLE_TIMEOUT_MS` | 会话空闲超时，单位毫秒，最大 `2147483647`；`0` 表示不因空闲关闭会话；无效或超出范围的值使用默认值 | `600000`（10 分钟） |
-| `PI_WEB_SHUTDOWN_DEADLINE_MS` | 关闭会话时留给扩展处理 `session_shutdown` 的时间，到时仍会释放会话；单位毫秒，最大 `2147483647`；`0`、无效或超出范围的值使用默认值 | `5000`（5 秒） |
-| `PI_CODEMODE_MAX_WORKERS` | pi 同时运行 codemode 脚本的上限，由服务器里所有会话和 subagent 共用；pi 自身默认是 `2`，变量未设置或为空时 pi-web 设为 `8`。每个脚本最多可用 256 MB | `8` |
+
+Rust 后端配置应设置在 Rust 进程上，而不是 Pi Web 界面进程上。例如，可在后端设置 `PI_CODEMODE_MAX_WORKERS` 调整所有会话共享的 code-mode worker 数量（默认 `2`）。
 
 在启动服务前设置 `PI_WEB_APP_NAME`，例如 `PI_WEB_APP_NAME='工作 Pi' pi-web`。修改后重启服务即可提供新的 manifest，无需重新构建。已安装 PWA 的名称更新由浏览器管理，不保证立即生效；此设置不改变页面标题或图标。
 
@@ -117,14 +118,16 @@ npx @agegr/pi-web@latest
 
 ## 注意事项
 
-- **智能体数据**：Pi Web 默认读取 `~/.pi/agent` 下的 pi 数据，包括 `sessions/<编码后的工作目录>/<时间戳>_<uuid>.jsonl` 中的会话文件。可通过 `PI_CODING_AGENT_DIR` 指定其他 pi agent 目录。
-- **文件系统访问**：Pi Web 必须能读取智能体数据目录及会话记录中的工作目录。与现有 pi 会话共用数据时，请让 Pi Web 运行在与 pi 相同的文件系统环境中。
+- **智能体数据**：Rust 后端默认读取 `~/.pi/agent` 下的 pi 数据，包括 `sessions/<编码后的工作目录>/<时间戳>_<uuid>.jsonl` 中的会话文件。请在后端进程设置 `PI_CODING_AGENT_DIR` 指定其他 pi agent 目录。
+- **文件系统访问**：Rust 后端必须能读取智能体数据目录及会话记录中的工作目录。与现有 pi 会话共用数据时，请让后端运行在与 pi 相同的文件系统环境中。
 - **共享配置**：模型面板使用 pi 的模型、设置和凭据存储，因此两种界面都能看到相关更改。已打开的会话要再次选择该模型，才会应用保存后的模型修改。
 - **文件访问边界**：文件浏览器仅能访问在 Pi Web 中选择过的工作目录，以及它已识别的项目或会话根目录；它不是通用的文件系统浏览器。
 - **Git worktree**：切换器何时显示、如何创建 worktree，以及删除会产生什么影响，见 [Pi Web 里的 Worktree](./worktrees.zh-CN.md)。
 - **集成接口**：嵌入 Pi Web 的应用可以替换会话行的右键菜单，服务端的 pi 扩展可以让会话不因空闲被关闭；见 [Integration Hooks](./integrations.md)。
 
 ## 开发
+
+使用界面前请单独启动 `pi-web-backend`；`npm run dev` 只会启动 Next.js。
 
 ```bash
 npm install

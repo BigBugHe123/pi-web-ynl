@@ -57,7 +57,7 @@ import {
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
-import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { SessionStatsInfo } from "@/lib/api-types";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { getAgentsBadge, getSessionFamily } from "@/lib/session-family";

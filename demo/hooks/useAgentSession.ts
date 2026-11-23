@@ -23,7 +23,7 @@ import {
 import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
-import type { SessionStatsInfo } from "@/lib/pi-types";
+import type { SessionStatsInfo } from "@/lib/api-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";

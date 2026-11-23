@@ -1,12 +1,11 @@
+import { backendUrl } from "@/lib/server/backend-url";
 import { NextResponse } from "next/server";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { isProviderUsageId } from "@/lib/provider-usage-ids";
 
 export const dynamic = "force-dynamic";
 
-const backend = process.env.PI_RUST_BACKEND_URL
-  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
-  ?? "http://127.0.0.1:3030";
+const backend = backendUrl();
 
 export async function POST(request: Request) {
   if (!isApiRequestAllowed(request)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });

@@ -1,8 +1,9 @@
+import { backendUrl } from "@/lib/server/backend-url";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const backend = process.env.PI_RUST_BACKEND_URL ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL ?? "http://127.0.0.1:3030";
+const backend = backendUrl();
 
 // GET /api/push/config - VAPID public key for client-side push subscriptions.
 export async function GET(): Promise<Response> {

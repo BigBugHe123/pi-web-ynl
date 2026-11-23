@@ -1,7 +1,6 @@
 /**
- * Stand-in for lib/rpc-manager.ts: one "agent" per session that answers
- * /api/agent commands and streams canned replies over the mock SSE channel
- * with the same event sequence a real pi run produces.
+ * Deterministic demo agent that answers /api/agent commands with canned replies
+ * over the mock SSE channel without calling a model.
  */
 import type { AgentMessage, AssistantMessage, SessionEntry, ToolResultMessage } from "@/lib/types";
 import type { MockEventSource } from "./event-source";

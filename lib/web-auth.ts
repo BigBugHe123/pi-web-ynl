@@ -1,11 +1,11 @@
+import { backendUrl } from "@/lib/server/backend-url";
+
 export const PI_WEB_AUTH_USERNAME = "pi";
 export const PI_WEB_SESSION_COOKIE = "pi_web_session";
 export const PI_WEB_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 
 export function rustBackendUrl(): string {
-  return process.env.PI_RUST_BACKEND_URL
-    ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
-    ?? "http://127.0.0.1:3030";
+  return backendUrl();
 }
 
 export async function requestRustAuth(

@@ -1,3 +1,4 @@
+import { backendUrl } from "@/lib/server/backend-url";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -9,9 +10,7 @@ export async function GET(req: Request) {
   const cwd = searchParams.get("cwd");
   if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
   try {
-    const backend = process.env.PI_RUST_BACKEND_URL
-      ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
-      ?? "http://127.0.0.1:3030";
+    const backend = backendUrl();
     const target = new URL("/api/v1/skills", backend);
     target.searchParams.set("cwd", cwd);
     const response = await fetch(target, { cache: "no-store", signal: req.signal });
@@ -46,9 +45,7 @@ export async function PATCH(req: Request) {
     if (body.filePaths === undefined && (typeof body.filePath !== "string" || !body.filePath)) {
       return NextResponse.json({ error: "filePath required" }, { status: 400 });
     }
-    const backend = process.env.PI_RUST_BACKEND_URL
-      ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
-      ?? "http://127.0.0.1:3030";
+    const backend = backendUrl();
     const response = await fetch(new URL("/api/v1/skills", backend), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

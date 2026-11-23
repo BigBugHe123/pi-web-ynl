@@ -1,4 +1,4 @@
-// Types mirrored from pi-mono coding-agent session-manager
+// Browser-facing shapes for Rust's Pi-compatible session and event APIs.
 
 export interface SessionHeader {
   type: "session";

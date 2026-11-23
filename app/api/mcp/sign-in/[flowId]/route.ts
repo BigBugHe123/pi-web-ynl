@@ -1,12 +1,11 @@
+import { backendUrl as rustBackendUrl } from "@/lib/server/backend-url";
 import { NextResponse } from "next/server";
 import type { McpErrorResponse, McpRefusalReason, McpSignInFlowInfo } from "@/lib/api-types";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
-const backend = process.env.PI_RUST_BACKEND_URL
-  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
-  ?? "http://127.0.0.1:3030";
+const backend = rustBackendUrl();
 const UNKNOWN = "No sign-in has that id: it ended over a minute ago, or Pi Web restarted";
 type Context = { params: Promise<{ flowId: string }> };
 

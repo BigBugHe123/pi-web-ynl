@@ -1,3 +1,4 @@
+import { backendUrl } from "@/lib/server/backend-url";
 export interface ModelsData {
   models: Record<string, string>;
   modelList: { id: string; name: string; provider: string; providerName: string; input?: string[] }[];
@@ -17,9 +18,7 @@ export interface ModelsData {
   isScoped?: boolean;
 }
 
-const backend = process.env.PI_RUST_BACKEND_URL
-  ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL
-  ?? "http://127.0.0.1:3030";
+const backend = backendUrl();
 
 /** Invalidate the Rust-owned model catalog cache after a successful mutation. */
 export async function invalidateModelsCache(): Promise<void> {

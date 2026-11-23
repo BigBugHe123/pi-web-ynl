@@ -1,4 +1,35 @@
 import type { SubagentProfile } from "./subagents";
+import type { SessionInfo } from "./types";
+
+export interface SessionSearchResult {
+  session: SessionInfo;
+  entryId?: string;
+  blockIndex: number;
+  titleMatch?: boolean;
+  before: string;
+  match: string;
+  after: string;
+}
+
+export interface SessionSearchResponse {
+  results: SessionSearchResult[];
+  truncated: boolean;
+}
+
+export interface SessionStatsInfo {
+  sessionFile?: string;
+  sessionId: string;
+  sessionName?: string;
+  userMessages: number;
+  assistantMessages: number;
+  toolCalls: number;
+  toolResults: number;
+  totalMessages: number;
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+  cost: number;
+  contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null };
+  totalActiveMs?: number;
+}
 
 export interface ResourceDiagnostic {
   type: "warning" | "error";

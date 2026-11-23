@@ -10,7 +10,6 @@ services:
       PORT: "30141"
       PI_WEB_HOSTNAME: 0.0.0.0
       PI_WEB_NO_OPEN: "1"
-      PI_CODING_AGENT_DIR: /home/node/.pi/agent
       PI_WEB_PASSWORD: ${PI_WEB_PASSWORD:?Set PI_WEB_PASSWORD in .env}
       PI_RUST_BACKEND_URL: ${PI_RUST_BACKEND_URL:-http://host.docker.internal:3030}
       PI_RUST_BACKEND_SAME_HOST: ${PI_RUST_BACKEND_SAME_HOST:-}
@@ -18,11 +17,3 @@ services:
       PI_WEB_SKIP_VERSION_CHECK: "1"
     ports:
       - "${PI_WEB_PORT:-30141}:30141"
-    volumes:
-      - pi-agent-data:/home/node/.pi/agent
-      - pi-cwd-data:/home/node/pi-cwd
-      - ${WORKSPACE_DIR:-./workspace}:${WORKSPACE_CONTAINER_DIR:-/workspace}
-
-volumes:
-  pi-agent-data:
-  pi-cwd-data:

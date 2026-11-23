@@ -15,17 +15,9 @@ RUN rm -rf .next/cache && find .next -name '*.js.map' -delete && npm prune --omi
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production \
-    HOME=/home/node \
     PORT=30141 \
     PI_WEB_HOSTNAME=0.0.0.0 \
     PI_WEB_NO_OPEN=1
-
-# git is used by project tools; bash is needed by the agent's shell tool and terminal.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ca-certificates git \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /home/node/.pi/agent /home/node/.agents/skills /home/node/pi-cwd \
-    && chown -R node:node /home/node/.pi /home/node/.agents /home/node/pi-cwd
 
 WORKDIR /app
 COPY --from=build --chown=node:node /app/bin ./bin

@@ -10,7 +10,6 @@ const parentPackage = JSON.parse(readFileSync(join(configDir, "../package.json")
   version: string;
   dependencies?: Record<string, string>;
 };
-const piVersion = process.env.PI_RUST_BACKEND_VERSION ?? "unknown";
 
 // GitHub Pages serves a project site from /<repo>/. The workflow passes the
 // prefix in PAGES_BASE_PATH; local builds and `next dev` run at the root.
@@ -29,7 +28,7 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   env: {
     NEXT_PUBLIC_APP_VERSION: parentPackage.version,
-    NEXT_PUBLIC_PI_VERSION: piVersion,
+    NEXT_PUBLIC_PI_VERSION: process.env.PI_RUST_BACKEND_VERSION ?? "unknown",
     NEXT_PUBLIC_BASE_PATH: basePath,
   },
 };

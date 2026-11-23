@@ -25,6 +25,8 @@ Pi Web requires Node.js 22.19.0 or newer. Check your version with `node --versio
 npx @agegr/pi-web@latest
 ```
 
+The npm package contains the Next.js UI and same-origin gateway. Start the separate Rust `pi-web-backend` first (default address `http://127.0.0.1:3030`); set `PI_RUST_BACKEND_URL` on the Pi Web process if it runs elsewhere. The UI does not include or launch an agent backend. If password authentication is enabled, configure the same `PI_WEB_PASSWORD` in both processes. See [backend setup and ownership](./docs/pi-rust-backend-review.md).
+
 The CLI opens a browser after the server is ready. If it does not, open [http://127.0.0.1:30141](http://127.0.0.1:30141) on this computer, or use this computer's LAN IP address on a phone connected to the same network. Pi Web listens on all network interfaces by default.
 
 If no model provider is configured yet, open the **Models** panel to sign in or add an API key.
@@ -62,9 +64,8 @@ For port and hostname, command-line options override the corresponding environme
 | `PI_WEB_SKIP_VERSION_CHECK=1` | Disable Pi Web update checks | Unset |
 | `PI_WEB_ALLOWED_HOSTS` | Additional exact proxy or custom hostnames, comma-separated | Unset |
 | `PI_WEB_PASSWORD` | Enable browser password login; API clients may use Basic Auth with username `pi` | Authentication disabled |
-| `PI_WEB_IDLE_TIMEOUT_MS` | Session idle timeout in milliseconds, up to `2147483647`; `0` disables idle shutdown; invalid or out-of-range values use the default | `600000` (10 min) |
-| `PI_WEB_SHUTDOWN_DEADLINE_MS` | How long extensions get to handle `session_shutdown` before a closing session is disposed anyway, in milliseconds up to `2147483647`; `0`, invalid or out-of-range values use the default | `5000` (5 s) |
-| `PI_CODEMODE_MAX_WORKERS` | pi's limit on codemode scripts running at once, shared by every session and subagent in the server; pi's own default is `2`, and pi-web sets `8` when the variable is unset or empty. Each script may use up to 256 MB | `8` |
+
+Rust backend settings are read by the Rust process, not the Pi Web UI process. For example, set `PI_CODEMODE_MAX_WORKERS` there to change the shared code-mode worker limit (default `2`).
 
 Set `PI_WEB_APP_NAME` before starting the server (for example, `PI_WEB_APP_NAME='Work Pi' pi-web`). After changing it, restart the server to serve the new manifest; no rebuild is required. Updates to the name of an already installed PWA are managed by the browser and are not guaranteed to appear immediately. This does not change the page title or icons.
 
@@ -115,14 +116,16 @@ npx @agegr/pi-web@latest
 
 ## Notes
 
-- **Agent data**: Pi Web reads pi data from `~/.pi/agent` by default, including session files under `sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`. Set `PI_CODING_AGENT_DIR` to use another pi agent directory.
-- **Filesystem access**: Pi Web must be able to read the agent data directory and the working directories recorded by its sessions. Run Pi Web in the same filesystem environment as pi when sharing existing sessions.
+- **Agent data**: the Rust backend reads pi data from `~/.pi/agent` by default, including session files under `sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`. Set `PI_CODING_AGENT_DIR` on the backend process to use another pi agent directory.
+- **Filesystem access**: the Rust backend must be able to read the agent data directory and working directories recorded by sessions. Run it in the same filesystem environment as pi when sharing existing sessions.
 - **Shared configuration**: the Models panel uses pi's model, settings, and credential storage, so changes are visible to both interfaces. An open session applies a saved edit of its model when you select the model again.
 - **File access boundary**: the file browser is limited to working directories selected in Pi Web and project or session roots it already knows about; it is not a general filesystem browser.
 - **Git worktrees**: see [Worktrees in Pi Web](./docs/worktrees.md) for switcher visibility, worktree creation, and removal behavior.
 - **Integration hooks**: apps that embed Pi Web can replace the session row's context menu, and server-side pi extensions can keep a session from idle shutdown; see [Integration Hooks](./docs/integrations.md).
 
 ## Development
+
+Start `pi-web-backend` separately before using the UI; `npm run dev` starts only Next.js.
 
 ```bash
 npm install

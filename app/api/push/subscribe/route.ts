@@ -1,8 +1,9 @@
+import { backendUrl } from "@/lib/server/backend-url";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const backend = process.env.PI_RUST_BACKEND_URL ?? process.env.NEXT_PUBLIC_PI_RUST_BACKEND_URL ?? "http://127.0.0.1:3030";
+const backend = backendUrl();
 
 // POST /api/push/subscribe - register a browser subscription in the Rust backend.
 export async function POST(req: Request): Promise<Response> {
