@@ -1571,7 +1571,7 @@ function McpServerDetail({
           testBlockSaid={saidAbove(testBlock)}
           testBlockId={testBlockId}
         />
-        {server.description !== undefined && (
+        {server.description != null && (
           <ConfigDetailGridRow label={t("mcp.detail.description")} tone="plain">
             {revealHiddenCharacters(server.description)}
           </ConfigDetailGridRow>
@@ -1587,7 +1587,7 @@ function McpServerDetail({
           </ConfigDetailGridRow>
         )}
         {/* Left out when not set: the server then runs in the session's folder, with no env or headers of its own. */}
-        {stdio && server.cwd !== undefined && (
+        {stdio && server.cwd != null && (
           <ConfigDetailGridRow label={t("mcp.detail.cwd")} mono className="mcp-config-code">{revealHiddenCharacters(server.cwd)}</ConfigDetailGridRow>
         )}
         {stdio && server.envNames.length > 0 && (
