@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
 import { PwaRegistration } from "@/components/PwaRegistration";
+import { StaticAuthGate } from "@/components/StaticAuthGate";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "katex/dist/katex.min.css";
 import "./globals.css";
@@ -72,6 +73,7 @@ export default function RootLayout({
         />
       </head>
       <body translate="no" className="notranslate" suppressHydrationWarning>
+        <StaticAuthGate />
         {children}
         <PwaRegistration />
       </body>

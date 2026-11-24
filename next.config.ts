@@ -5,12 +5,14 @@ import { fileURLToPath } from "url";
 
 const configDir = dirname(fileURLToPath(import.meta.url));
 const { version } = JSON.parse(readFileSync(join(configDir, "package.json"), "utf8")) as { version: string };
+const staticExport = process.env.PI_WEB_STATIC_EXPORT === "1";
 // mdast-util-gfm-autolink-literal (remark-gfm) ships a RegExp lookbehind that
 // Safari parses only from 16.4, which blanked `/` on iOS 16.2 (#753). The loader
 // swaps it for an equivalent built at runtime; both bundlers must run it.
 const gfmAutolinkEmailLoader = join(configDir, "lib/gfm-autolink-email-loader.cjs");
 
 const nextConfig: NextConfig = {
+  ...(staticExport ? { output: "export" as const } : {}),
   outputFileTracingRoot: configDir,
   experimental: {
     agentUpgrade: "security",
@@ -68,6 +70,9 @@ const nextConfig: NextConfig = {
     "192.168.*.*",
   ],
   async headers() {
+    // Next's static export cannot emit response headers. The Nginx sample sets
+    // the equivalent cache and service-worker headers at the static server.
+    if (staticExport) return [];
     return [
       {
         source: "/",
@@ -93,6 +98,7 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: version,
     NEXT_PUBLIC_PI_VERSION: process.env.PI_RUST_BACKEND_VERSION ?? "unknown",
+    NEXT_PUBLIC_STATIC_EXPORT: staticExport ? "1" : "0",
   },
 };
 
