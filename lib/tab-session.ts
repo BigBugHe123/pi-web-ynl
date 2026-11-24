@@ -16,7 +16,7 @@
  * there is no stable cross-tab window identity to key a localStorage entry on.
  *
  * Stored in sessionStorage; best-effort (silently ignored when unavailable).
- * Legacy values are a bare session id; current values are a small JSON object.
+ * Values are a small JSON object.
  */
 
 const STORAGE_KEY = "pi-web:tab-open-session";
@@ -58,7 +58,7 @@ function parseTabOpen(raw: string | null): TabOpen | null {
       return null;
     }
   }
-  return { kind: "session", sessionId: raw };
+  return null;
 }
 
 function writeTabOpen(value: TabOpen, storage: StorageLike): void {

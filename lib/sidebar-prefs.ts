@@ -11,26 +11,12 @@
 
 const SIDEBAR_TAB_STORAGE_KEY = "pi-web:sidebar-tab";
 const GROUP_EXPANSION_STORAGE_KEY = "pi-web:sidebar-groups-v2";
-/**
- * The group choices before v2. A group that stopped being current was saved
- * there as open, so every project ever visited came back expanded; its
- * `true` entries cannot be told from the user's own, and only its collapses
- * move to v2 (loadGroupExpansion).
- */
-const LEGACY_GROUP_EXPANSION_STORAGE_KEY = "pi-web:sidebar-groups";
 const ARCHIVE_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-archive-collapsed";
 const PINNED_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-pins-collapsed";
 const SHOW_IGNORED_FILES_STORAGE_KEY = "pi-web:sidebar-files-show-ignored";
 const FILES_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-files-collapsed";
 const CHANGES_VIEW_MODE_STORAGE_KEY = "pi-web:sidebar-changes-view-mode";
 const NON_GIT_CWDS_STORAGE_KEY = "pi-web:sidebar-non-git-cwds";
-/**
- * Keys nothing reads now: the sessions/explorer split's, which the two tabs
- * replaced, and the group choices before v2 (loadGroupExpansion reads them
- * only while v2 is missing).
- */
-const RETIRED_STORAGE_KEYS = ["pi-web:file-explorer:open", "pi-web:sidebar-session-pane-height", LEGACY_GROUP_EXPANSION_STORAGE_KEY];
-
 /** Oldest choices are dropped beyond this many project keys. */
 const MAX_GROUP_EXPANSION_ENTRIES = 300;
 /** Oldest folders are dropped beyond this many. */
@@ -44,7 +30,6 @@ export type ChangesViewMode = "list" | "tree";
 interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
-  removeItem?(key: string): void;
 }
 
 function getBrowserStorage(): StorageLike | null {
@@ -85,33 +70,14 @@ function cleanGroupExpansion(value: unknown): Record<string, boolean> {
   return result;
 }
 
-/**
- * The saved group choices. A browser without v2 yet takes the collapses of
- * the old key and saves them as v2 at once, so the old key can go
- * (forgetRetiredSidebarKeys, after this) and is never read again; its
- * expansions are dropped: the defaults (current and pinned projects open)
- * come back once.
- */
 export function loadGroupExpansion(storage: StorageLike | null = getBrowserStorage()): Record<string, boolean> {
   if (!storage) return {};
   try {
     const raw = storage.getItem(GROUP_EXPANSION_STORAGE_KEY);
-    if (raw !== null) return cleanGroupExpansion(JSON.parse(raw));
+    return raw === null ? {} : cleanGroupExpansion(JSON.parse(raw));
   } catch {
     return {};
   }
-  let legacy: Record<string, boolean>;
-  try {
-    const raw = storage.getItem(LEGACY_GROUP_EXPANSION_STORAGE_KEY);
-    if (raw === null) return {};
-    legacy = cleanGroupExpansion(JSON.parse(raw));
-  } catch {
-    // Unreadable: nothing to keep, and the key goes with the retired ones.
-    legacy = {};
-  }
-  const collapsed = Object.fromEntries(Object.entries(legacy).filter(([, expanded]) => !expanded));
-  saveGroupExpansion(collapsed, storage);
-  return collapsed;
 }
 
 /**
@@ -298,17 +264,3 @@ export function rememberCwdGitStatus(
   }
 }
 
-/**
- * Drops the retired keys. Best-effort, like the rest. Runs after
- * loadGroupExpansion, which moves the old group choices it keeps to v2.
- */
-export function forgetRetiredSidebarKeys(storage: StorageLike | null = getBrowserStorage()): void {
-  if (!storage) return;
-  for (const key of RETIRED_STORAGE_KEYS) {
-    try {
-      storage.removeItem?.(key);
-    } catch {
-      // Privacy mode may refuse it; the key is simply left unread.
-    }
-  }
-}
