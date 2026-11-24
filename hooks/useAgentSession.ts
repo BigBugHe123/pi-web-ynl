@@ -339,7 +339,7 @@ type SessionLeaseOutcome = SessionLeaseReply | "unanswered" | null;
 // This page's id, the `?holder=` of its event streams: lib/page-debug.ts.
 export { peekPageId };
 function sessionLeaseUrl(sid: string): string {
-  return agentBackendUrl(`/api/v1/sessions/${encodeURIComponent(sid)}/lease`);
+  return agentBackendUrl(`/api/agent/${encodeURIComponent(sid)}/lease`);
 }
 // Retry temporary model-list failures without requiring a page refresh.
 const MODELS_RETRY_DELAYS_MS = [2_000, 5_000, 10_000];
@@ -685,7 +685,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventConnectionRef.current = new AgentEventConnection({
       createSource: (sid) => trackEventSource(
         "agent",
-        new EventSource(agentBackendUrl(`/api/v1/sessions/${encodeURIComponent(sid)}/events?holder=${encodeURIComponent(pageId())}`)),
+        new EventSource(agentBackendUrl(`/api/agent/${encodeURIComponent(sid)}/events?holder=${encodeURIComponent(pageId())}`)),
         sid,
       ),
       onEvent: (event) => handleAgentEventRef.current?.(event as AgentEvent),

@@ -9,6 +9,9 @@
 
 import { missingCwdFromBody } from "./missing-cwd";
 
+// Empty means same-origin. Set this once to a backend origin for a split deployment.
+const AGENT_BACKEND_ORIGIN = "";
+
 export class AgentCommandError extends Error {
   constructor(
     message: string,
@@ -31,8 +34,7 @@ export class AgentCommandError extends Error {
 export const EXTENSION_REPORTED_CODE = "extension_reported";
 
 export function agentBackendUrl(path: string): string {
-  // Keep browser requests on the Pi Web origin; server routes proxy to the backend.
-  return path;
+  return `${AGENT_BACKEND_ORIGIN}${path}`;
 }
 
 export function isPromptRejectedError(error: unknown): error is AgentCommandError {
@@ -48,18 +50,18 @@ export function isPromptRejectedError(error: unknown): error is AgentCommandErro
  * in a large project), fetched again after every model call (#1302).
  */
 export function agentStatusUrl(sessionId: string): string {
-  return agentBackendUrl(`/api/v1/sessions/${encodeURIComponent(sessionId)}?systemPrompt=0`);
+  return agentBackendUrl(`/api/agent/${encodeURIComponent(sessionId)}?systemPrompt=0`);
 }
 
 export function agentFullStateUrl(sessionId: string): string {
-  return agentBackendUrl(`/api/v1/sessions/${encodeURIComponent(sessionId)}`);
+  return agentBackendUrl(`/api/agent/${encodeURIComponent(sessionId)}`);
 }
 
 export async function sendAgentCommand<T = unknown>(
   sessionId: string,
   command: Record<string, unknown>,
 ): Promise<T> {
-  const res = await fetch(agentBackendUrl(`/api/v1/sessions/${encodeURIComponent(sessionId)}/commands`), {
+  const res = await fetch(agentBackendUrl(`/api/agent/${encodeURIComponent(sessionId)}`), {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command),
   });
   const body = (await res.json().catch(() => ({}))) as {

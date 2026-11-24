@@ -30,7 +30,6 @@ import {
   type SidebarRow,
 } from "@/lib/session-tree";
 import {
-  forgetRetiredSidebarKeys,
   loadArchiveCollapsed,
   loadFilesCollapsed,
   loadGroupExpansion,
@@ -820,11 +819,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     return () => observer.disconnect();
   }, [reclampFilesHeight, stacked]);
 
-  // Browser storage is unavailable during server rendering. Restore the
-  // sidebar preferences after hydration: read in a state initializer, a saved
-  // Files tab would make the first client render differ from the server's
-  // HTML (a hydration error, and the server markup thrown away). The group
-  // choices load before the retired keys go: the old ones move to v2 then.
+  // Restore preferences after hydration: a saved Files tab would make the
+  // first client render differ from the server's HTML and cause a hydration error.
   useEffect(() => {
     const tab = loadSidebarTab();
     if (tab !== "sessions") setSidebarTab(tab);
@@ -836,7 +832,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onSelectSid
     if (loadFilesCollapsed()) setFilesCollapsed(true);
     if (loadShowIgnoredFiles()) setShowIgnoredFiles(true);
     setSidebarPrefsRestored(true);
-    forgetRetiredSidebarKeys();
   }, []);
 
   const loadSessions = useCallback(async (showLoading = false, force = false, summary = false) => {

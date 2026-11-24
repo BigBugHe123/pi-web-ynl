@@ -86,7 +86,6 @@ export function isMessageGroupAnchor(message: TurnAnchorMessage): boolean {
   return message.role === "user"
     || (message.role === "custom" && !isHiddenCustomMessage(message) && (
       message.customType === "compaction"
-      || message.customType === "pi-web:subagent-notification"
       || message.customType === "subagent-notification"
     ));
 }
