@@ -1717,6 +1717,39 @@
   line-height: 1.5;
 }
 
+.prompts-editor {
+  flex: 1 1 auto;
+  display: block;
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.55 var(--font-mono);
+}
+
+.prompts-detail-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prompts-help {
+  margin: 0;
+}
+
+.prompts-editor:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.prompts-editor:disabled {
+  opacity: .65;
+}
+
 /* A note on the options above it, not an introduction to them. */
 .settings-chat-options + .settings-general-description {
   margin: 6px 0 0;
