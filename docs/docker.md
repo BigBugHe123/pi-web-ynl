@@ -18,7 +18,7 @@ The equivalent Podman command is `podman compose up --build -d` when the Compose
 
 ## Backend data and project paths
 
-The Compose service is only the Next.js UI gateway and has no agent-data or workspace volumes. The Rust backend owns sessions, credentials, settings, files, Git, terminals, and project access. It must run in a filesystem environment that can read the intended Pi agent directory and project paths. When running the backend on the Docker host (the default Compose URL), those paths are host paths and need no mount into the UI container. If you containerize the Rust backend separately, mount persistent data and project directories into that backend container and configure matching absolute paths there; do not mount them into the UI container.
+The Compose service is only the Next.js UI gateway and has no agent-data or workspace volumes. The Rust backend owns sessions, credentials, settings, files, Git, terminals, and project access. It must run in a filesystem environment that can read the intended Pi agent directory and project paths. When running the backend on the Docker host (the default Compose URL), those paths are host paths and need no mount into the UI container. When running the backend on the Docker host (the default Compose URL), those paths are host paths and need no mount into the UI container. If you containerize the Rust backend separately, mount persistent data and project directories into that backend container and configure matching absolute paths there; do not mount them into the UI container.
 
 ## Environment variables
 

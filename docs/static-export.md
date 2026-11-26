@@ -15,8 +15,7 @@ cargo +1.98.1 build -p pi-coding-agent -p pi-web-backend
 ```
 
 The first command exports the frontend to `pi-web-ynl/out/` and copies it to
-`pi-rust-ynl/target/debug/web/`, beside the debug executable. Start the backend
-as usual, then open its address (default `http://127.0.0.1:3030`). The same
+`pi-rust-ynl/target/debug/web/`, beside the backend executable. Start the backend as usual, then open its address (default `http://127.0.0.1:3030`). The same
 process serves the UI and handles `/api/*` and `/api/v1/*` requests.
 
 Build `pi-coding-agent` with the backend as shown above: the subagents
