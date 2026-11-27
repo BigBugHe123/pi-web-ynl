@@ -40,6 +40,7 @@ const outcomes = {
 // Notices show their translation keys.
 async function setup({ fresh = false, context } = {}) {
   const t = (key) => key;
+  const ended = [];
   mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
   const sid = fresh ? "s1" : "A";
   const sources = [];
@@ -101,6 +102,7 @@ async function setup({ fresh = false, context } = {}) {
     : {
         session: { id: "A", cwd: "/project", path: "/A.jsonl", name: "A" }, newSessionCwd: null, newSessionDraftKey: null, t,
         onBranchDataChange: (_tree, _leaf, change) => { server.leafChange = change; },
+        onAgentEnd: (event) => ended.push(event),
       });
   await settle();
   hook.flush();
@@ -144,7 +146,7 @@ async function setup({ fresh = false, context } = {}) {
     // A cached view would open the next test's session on this one's messages.
     for (const key of ["A", "s1"]) deleteSessionViewSnapshot(key);
   };
-  return { hook, sid, server, prompts, connect, tick, emit, answer, notices, bubble, cachedBubble, unmount, teardown };
+  return { hook, sid, server, prompts, connect, tick, emit, answer, notices, bubble, cachedBubble, ended, unmount, teardown };
 }
 
 async function withSetup(options, body) {
@@ -190,6 +192,23 @@ test("normal RPC prompt: agent_settled immediately re-enables the composer witho
     // until the status reconciliation request eventually ran.
     await env.emit({ type: "agent_settled" });
     assert.equal(env.hook.result.agentRunning, false);
+  });
+});
+
+test("agent_settled notifies a normally completed prompt once", async () => {
+  await withSetup({}, async (env) => {
+    const { sending } = await sendNormal(env);
+    await env.emit({ type: "agent_start" });
+    env.server.running = true;
+    await env.answer("accepted");
+    await sending;
+
+    await env.emit({ type: "agent_settled" });
+    assert.equal(env.hook.result.agentRunning, false);
+    assert.deepEqual(env.ended, [{ aborted: false }]);
+
+    await env.emit({ type: "prompt_done" });
+    assert.deepEqual(env.ended, [{ aborted: false }], "late prompt_done does not notify completion twice");
   });
 });
 

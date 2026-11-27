@@ -745,6 +745,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   const enterSendMode = useEnterSendMode();
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
+  const [toolPresetSaving, setToolPresetSaving] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>(() => (
@@ -1858,6 +1859,15 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     return () => { runEndedAtRef.current = performance.now(); };
   }, [isStreaming]);
   const isStrayClick = (e: React.MouseEvent) => isRunEndStrayClick(e.detail, performance.now() - runEndedAtRef.current);
+  const changeToolPreset = async (preset: ToolPreset) => {
+    if (!onToolPresetChange || toolPresetSaving) return;
+    setToolPresetSaving(true);
+    try {
+      await onToolPresetChange(preset);
+    } finally {
+      setToolPresetSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!isMobile) setControlsMenuOpen(false);
@@ -2834,8 +2844,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                 position: isMobile ? "static" : "relative",
               }}>
                 <button
-                  onClick={(e) => { if (!isStreaming && !isStrayClick(e)) setToolDropdownOpen((v) => !v); }}
-                  disabled={isStreaming}
+                  onClick={(e) => { if (!toolPresetSaving && !isStrayClick(e)) setToolDropdownOpen((v) => !v); }}
+                  disabled={toolPresetSaving}
                   title={t("chat.changeToolPreset") + `: ${toolPresetLabel}`}
                   aria-label={t("chat.changeToolPreset")}
                   style={{
@@ -2847,13 +2857,13 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                     border: "none",
                     borderRadius: 9,
                     color: "var(--text-muted)",
-                    cursor: isStreaming ? "not-allowed" : "pointer",
+                    cursor: toolPresetSaving ? "wait" : "pointer",
                     fontSize: 12,
-                    opacity: isStreaming ? 0.5 : 1,
+                    opacity: toolPresetSaving ? 0.5 : 1,
                     transition: "background 0.12s, color 0.12s",
                   }}
                   onMouseEnter={(e) => {
-                    if (isStreaming) return;
+                    if (toolPresetSaving) return;
                     e.currentTarget.style.background = "var(--bg-hover)";
                     e.currentTarget.style.color = "var(--text)";
                   }}
@@ -2889,7 +2899,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
                       return (
                         <button
                           key={lvl}
-                          onClick={() => { setToolDropdownOpen(false); if (!isActive) onToolPresetChange(preset); }}
+                          onClick={() => { setToolDropdownOpen(false); if (!isActive) void changeToolPreset(preset); }}
                           style={{
                             display: "flex", alignItems: "center", gap: 8,
                             width: "100%", padding: "7px 12px",

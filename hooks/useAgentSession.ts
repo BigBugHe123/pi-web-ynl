@@ -611,6 +611,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // follows settings.json defaultTools and the picker must say so rather than
   // labelling it with whichever preset the resolved tools happen to match.
   const sessionToolsPinnedRef = useRef(false);
+  // Serialize tool selection with prompts from this composer. Separate HTTP
+  // requests can otherwise reach the Rust worker out of order after a quick
+  // preset change followed immediately by Send.
+  const toolSelectionFlightRef = useRef<Promise<void> | null>(null);
   const agentRunningRef = useRef(false);
   const sdkAgentActiveRef = useRef(false);
   const rpcPromptPendingRef = useRef(false);
@@ -2026,7 +2030,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "agent_end":
         // One logical prompt can emit multiple agent_end events before retrying,
         // compacting, or continuing messages queued by extension handlers.
-        // Keep the stream open until prompt_done/agent_settled and the idle grace.
+        // Keep the stream open until prompt_done/agent_settled for commands
+        // that are handled without an agent run.
         if (!agentRunningRef.current) break;
         setAgentPhase(null);
         setRetryInfo(null);
@@ -2062,11 +2067,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const sid = sessionIdRef.current;
         const wasRunning = settleUiStage();
         setIsCompacting(false);
+        const runId = promptRunIdRef.current;
+        // agent_settled is the server's definitive run boundary. Flush the
+        // finished transcript now so the composer and prompt controls do not
+        // wait on the command response or the event-stream idle grace.
         if (sid) {
           void loadSession(sid);
           scheduleEventStreamClose(sid);
         }
-        if (wasRunning) {
+        if (rpcPromptPendingRef.current) {
+          rpcPromptPendingRef.current = false;
+          optimisticUserMessageKeyRef.current = null;
+          notifyPromptStage(runId, event.aborted === true, event.subagentsActive === true);
+        }
+        if (wasRunning && notifiedPromptRunIdRef.current !== runId) {
           onAgentEnd?.({ aborted: event.aborted === true, ...(event.subagentsActive === true ? { subagentsActive: true } : {}) });
         }
         break;
@@ -2415,6 +2429,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     let promptRequestStarted = false;
 
     try {
+      if (toolSelectionFlightRef.current) await toolSelectionFlightRef.current;
       if (isNew && newSessionCwd) {
         const selectedModel = newSessionModel;
         const existingSid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
@@ -3121,6 +3136,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     try {
+      if (toolSelectionFlightRef.current) await toolSelectionFlightRef.current;
       await sendAgentCommand(sid, {
         type: "prompt",
         message,
@@ -3227,19 +3243,29 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const toolNames = getToolNamesForPreset(preset);
     setPreferredToolPreset(preset);
     setToolPresetState(preset);
+    sessionToolsPinnedRef.current = toolNames !== undefined;
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) {
-      sessionToolsPinnedRef.current = toolNames !== undefined;
       return;
     }
-    try {
+    const previousFlight = toolSelectionFlightRef.current;
+    const flight = (async () => {
+      // Keep rapid successive selections in UI order as well. A later preset
+      // must not be overwritten by an earlier request that finishes last.
+      if (previousFlight) await previousFlight.catch(() => {});
       // Omitting toolNames retracts the session's pin so it follows the configured
-      // defaults again; the server rebuilds the session to resolve them.
-      const result = await sendAgentCommand<{ sessionId?: string; recreated?: boolean }>(sid, {
+      // defaults again; the backend resolves that loadout in the current worker.
+      const result = await sendAgentCommand<{ tools?: string[]; sessionId?: string; recreated?: boolean }>(sid, {
         type: "set_tools",
         ...(toolNames !== undefined ? { toolNames } : {}),
       });
-      sessionToolsPinnedRef.current = toolNames !== undefined;
+      if (toolNames !== undefined) {
+        const applied = new Set(result?.tools ?? []);
+        const missing = toolNames.filter((name) => !applied.has(name));
+        if (missing.length > 0 || (toolNames.length === 0 && applied.size > 0)) {
+          throw new Error(`Backend tool selection mismatch (requested: ${toolNames.join(", ") || "none"}; active: ${[...applied].join(", ") || "none"})`);
+        }
+      }
       const activeSessionId = result?.sessionId ?? sid;
       if (activeSessionId !== sid || result?.recreated) {
         cancelEventStreamGrace();
@@ -3267,10 +3293,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setSystemPrompt(state.systemPrompt ?? "");
         syncLiveModel(state);
       }
+    })();
+    toolSelectionFlightRef.current = flight;
+    try {
+      await flight;
     } catch (e) {
       console.error("Failed to set tools:", e);
+      addNotice({ type: "error", message: `Failed to update tools: ${e instanceof Error ? e.message : String(e)}` });
+      await loadTools(sid);
+    } finally {
+      if (toolSelectionFlightRef.current === flight) toolSelectionFlightRef.current = null;
     }
-  }, [cancelEventStreamGrace, clearSlashCommands, closeEvents, loadTools, maintainEventsConnected, setToolPresetState, syncLiveModel]);
+  }, [addNotice, cancelEventStreamGrace, clearSlashCommands, closeEvents, loadTools, maintainEventsConnected, setToolPresetState, syncLiveModel]);
 
   const scrollToMessage = useCallback((element: HTMLElement, viewportOffset = 16) => {
     const container = scrollContainerRef.current;

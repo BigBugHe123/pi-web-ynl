@@ -494,6 +494,24 @@ test("renders the empty tool preset as Chat only", () => {
   assert.match(html, />Chat only<\/span>/);
 });
 
+test("hides the tool preset control while the agent is running", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onToolPresetChange() {},
+        isStreaming: true,
+        toolPreset: "default",
+      }),
+    ),
+  );
+
+  assert.doesNotMatch(html, /aria-label="Change tool preset"/);
+});
+
 test("renders the compact composer with the standard Send button and no session controls", () => {
   const html = renderToStaticMarkup(
     React.createElement(
