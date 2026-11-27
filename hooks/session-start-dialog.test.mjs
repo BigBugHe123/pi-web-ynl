@@ -20,6 +20,7 @@ const settle = async () => { for (let index = 0; index < 10; index++) await new 
 function setup(props = {}) {
   const sources = [];
   const commands = [];
+  const commandBodies = [];
   const pendingCommands = [];
   globalThis.EventSource = class {
     readyState = 0;
@@ -33,19 +34,26 @@ function setup(props = {}) {
       this.emit({ type: "connected", isStreaming: false });
     }
   };
-  const responses = { set_tools: { sessionId: "s2", recreated: true } };
   globalThis.fetch = async (url, init = {}) => {
     const command = init.body ? JSON.parse(init.body) : null;
     if (url.startsWith("/api/models")) return json({ models: {}, modelList: [] });
     if (url === "/api/agent/new") return json({ sessionId: "s1", model: { provider: "p", modelId: "before" }, thinkingLevel: "low" });
     if (url.startsWith("/api/agent/") && command) {
       commands.push(`${url.slice("/api/agent/".length)} ${command.type}`);
+      commandBodies.push({ sessionId: url.slice("/api/agent/".length), command });
+      if (command.type === "set_tools") {
+        return json({ success: true, data: {
+          tools: command.toolNames ?? ["read", "bash", "edit", "write"],
+          sessionId: "s1",
+          recreated: false,
+        } });
+      }
       if (command.type === "get_commands" || command.type === "get_state") {
         const pending = Promise.withResolvers();
         pendingCommands.push({ type: command.type, resolve: (data) => pending.resolve(json({ success: true, data })) });
         return pending.promise;
       }
-      return json({ success: true, data: responses[command.type] ?? null });
+      return json({ success: true, data: null });
     }
     return json({});
   };
@@ -56,7 +64,7 @@ function setup(props = {}) {
     assert.notEqual(index, -1, `no pending ${type}`);
     pendingCommands.splice(index, 1)[0].resolve(data);
   };
-  return { hook, sources, commands, open, answer };
+  return { hook, sources, commands, commandBodies, open, answer };
 }
 
 test("a fresh composer holds the stream while get_commands waits on session_start's dialog, then lets go", async () => {
@@ -67,7 +75,7 @@ test("a fresh composer holds the stream while get_commands waits on session_star
   const loading = hook.result.loadSlashCommands();
   await settle();
   assert.deepEqual(open(), ["/api/agent/s1/events"]);
-  sources[0].connect();
+  sources.at(-1).connect();
   sources[0].emit({ type: "extension_ui_request", id: "ui-1", method: "confirm", title: "Use project defaults?", message: "" });
   await settle();
   hook.flush();
@@ -90,8 +98,8 @@ test("a fresh composer holds the stream while get_commands waits on session_star
   hook.unmount();
 });
 
-test("after a tool change rebuilds a fresh composer's session, get_commands holds the new session's stream", async () => {
-  const { hook, sources, commands, open, answer } = setup();
+test("tool preset sends its concrete tools over RPC and keeps the current worker", async () => {
+  const { hook, sources, commands, commandBodies, open, answer } = setup();
   await settle();
   hook.flush();
 
@@ -102,22 +110,48 @@ test("after a tool change rebuilds a fresh composer's session, get_commands hold
   await settle();
   assert.deepEqual(open(), []);
 
-  const changing = hook.result.handleToolPresetChange("readonly");
+  const changing = hook.result.handleToolPresetChange("read-only");
   await settle();
+  const setTools = commandBodies.findLast(({ command }) => command.type === "set_tools");
+  assert.deepEqual(setTools, {
+    sessionId: "s1",
+    command: { type: "set_tools", toolNames: ["read", "grep", "find", "ls"] },
+  });
   answer("get_state", {});
   await changing;
   await settle();
 
-  // The rebuilt session's session_start may ask its dialog again: "/" shows it through s2's stream.
+  // The selection changes the current worker in place, so its stream stays on s1.
   const second = hook.result.loadSlashCommands();
   await settle();
-  assert.deepEqual(open(), ["/api/agent/s2/events"]);
-  assert.equal(commands.at(-1), "s2 get_commands");
+  assert.deepEqual(open(), ["/api/agent/s1/events"]);
+  assert.equal(commands.at(-1), "s1 get_commands");
   sources.at(-1).connect();
   answer("get_commands", { commands: [] });
   await second;
   await settle();
   assert.deepEqual(open(), []);
+  hook.unmount();
+});
+
+test("Chat only sends an explicit empty tool list over RPC", async () => {
+  const { hook, commandBodies, answer } = setup();
+  await settle();
+  hook.flush();
+
+  const initialLoad = hook.result.loadSlashCommands();
+  await settle();
+  answer("get_commands", { commands: [] });
+  await initialLoad;
+
+  const changing = hook.result.handleToolPresetChange("none");
+  await settle();
+  assert.deepEqual(commandBodies.findLast(({ command }) => command.type === "set_tools"), {
+    sessionId: "s1",
+    command: { type: "set_tools", toolNames: [] },
+  });
+  answer("get_state", {});
+  await changing;
   hook.unmount();
 });
 

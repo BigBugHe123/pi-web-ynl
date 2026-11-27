@@ -294,7 +294,7 @@ export class AgentEventConnection {
   }
 }
 
-/** What `POST /api/agent/[id]/lease` answers besides keeping the session alive. */
+/** Activity reported by `POST /api/agent/[id]/lease`. */
 export interface SessionLeaseReply {
   running?: boolean;
   awaitingInput?: boolean;
