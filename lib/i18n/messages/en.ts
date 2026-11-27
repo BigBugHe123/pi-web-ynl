@@ -785,6 +785,7 @@ export const enLocale: LocalePlugin = {
     "chat.confirm": "Confirm",
     "chat.submit": "Submit",
     "chat.extensionInput": "Extension terminal input",
+    "chat.extensionShortcuts": "Extension shortcuts",
     "chat.extensionPanel": "Extension panel",
     "chat.extensionWidgets": "Extension widgets",
     "chat.extensionWidgetAbove": "Above editor widget",

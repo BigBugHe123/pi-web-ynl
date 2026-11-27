@@ -211,6 +211,7 @@ export type ExtensionUiRequest =
       type: "extension_ui_request";
       id: string;
       method: "custom";
+      resizable?: boolean;
       lines: string[];
       closed?: boolean;
     };

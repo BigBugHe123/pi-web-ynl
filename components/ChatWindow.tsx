@@ -295,7 +295,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused, addNotice,
+    notices, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, extensionShortcuts, runExtensionShortcut, respondToExtensionUi, sendExtensionCustomInput, resizeExtensionCustomPanel, setNoticePaused, addNotice,
     isAutoModelSelection,
     isAutoThinkingSelection,
     defaultModel,
@@ -1040,6 +1040,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onKeyDownCapture={(event) => {
+        if (extensionDialog || extensionCustomUi || event.repeat || event.nativeEvent.isComposing) return;
+        const key = [
+          event.ctrlKey && "ctrl", event.altKey && "alt", event.shiftKey && "shift", event.metaKey && "super",
+          event.key === " " ? "space" : event.key.toLowerCase(),
+        ].filter(Boolean).join("+");
+        if (!extensionShortcuts.some((shortcut) => shortcut.key === key)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        runExtensionShortcut(key);
+      }}
     >
       {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[rgba(37,99,235,0.06)] backdrop-blur-[1px]">
@@ -1095,7 +1106,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           <ExtensionDialog key={extensionDialog.id} request={extensionDialog} waitingCount={waitingExtensionDialogCount} onRespond={respondToExtensionUi} />
         )}
         {extensionCustomUi && (
-          <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} waitingCount={waitingExtensionCustomUiCount} onInput={sendExtensionCustomInput} />
+          <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} waitingCount={waitingExtensionCustomUiCount} dialogOpen={Boolean(extensionDialog)} onInput={sendExtensionCustomInput} onResize={resizeExtensionCustomPanel} />
         )}
         {!isEmptyNew && <>
         <div
@@ -1546,6 +1557,18 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           </div>
         )}
         {chatInputElement}
+        {extensionShortcuts.length > 0 && (
+          <details className="px-3 text-xs">
+            <summary className="w-fit cursor-pointer">{t("chat.extensionShortcuts")}</summary>
+            <div className="flex flex-wrap gap-2 py-1">
+              {extensionShortcuts.map(({ key, description }) => (
+                <button key={key} type="button" className="rounded border px-2 py-1" disabled={!!extensionDialog || !!extensionCustomUi} onClick={() => runExtensionShortcut(key)}>
+                  {description || key}{description && <kbd className="ml-2">{key}</kbd>}
+                </button>
+              ))}
+            </div>
+          </details>
+        )}
         <ExtensionStatusBar
           statuses={extensionStatuses}
           widgets={extensionWidgets}
@@ -1849,7 +1872,7 @@ function ExtensionDialog({
       style={{
         position: "absolute",
         inset: 0,
-        zIndex: 90,
+        zIndex: 96,
         display: "flex",
         alignItems: collapsed ? "flex-start" : "center",
         justifyContent: "center",
@@ -2139,26 +2162,61 @@ type ExtensionCustomRequest = Extract<ExtensionUiRequest, { method: "custom" }>;
 function ExtensionCustomPanel({
   request,
   waitingCount,
+  dialogOpen,
   onInput,
+  onResize,
 }: {
   request: ExtensionCustomRequest;
   /** Further custom panels queued behind this one; each opens after this one closes. */
   waitingCount: number;
+  dialogOpen: boolean;
   onInput: (request: ExtensionCustomRequest, data: string) => void;
+  onResize: (id: string, columns: number) => void;
 }) {
   const { t } = useI18n();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const regionRef = useRef<HTMLDivElement>(null);
+  const outputRef = useRef<HTMLPreElement>(null);
   const composingRef = useRef(false);
   const [collapsed, setCollapsed] = useState(false);
   const displayLines = normalizeCustomPanelLines(request.lines);
   const summary = displayLines.map(stripAnsi).find((line) => line.trim())?.trim();
 
   useEffect(() => {
-    if (!collapsed) inputRef.current?.focus();
-  }, [collapsed]);
+    if (!collapsed && !dialogOpen) inputRef.current?.focus();
+  }, [collapsed, dialogOpen]);
+
+  useEffect(() => {
+    const region = regionRef.current;
+    const output = outputRef.current;
+    const canvas = document.createElement("canvas").getContext("2d");
+    if (!region || !output || !canvas || collapsed || !request.resizable) return;
+    let previousColumns = 0;
+    const observer = new ResizeObserver(() => {
+      const font = getComputedStyle(output);
+      canvas.font = `${font.fontSize} ${font.fontFamily}`;
+      const columnWidth = canvas.measureText("0").width;
+      if (columnWidth <= 0) return;
+      const available = region.clientWidth - 40 - 30;
+      const columns = Math.max(20, Math.min(120, Math.floor(available / columnWidth)));
+      if (columns === previousColumns) return;
+      previousColumns = columns;
+      onResize(request.id, columns);
+    });
+    observer.observe(region);
+    return () => observer.disconnect();
+  }, [collapsed, onResize, request.id, request.resizable]);
 
   return (
     <div
+      ref={regionRef}
+      inert={dialogOpen}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onInput(request, "\x1b");
+      }}
       style={{
         position: "absolute",
         inset: 0,
@@ -2235,6 +2293,7 @@ function ExtensionCustomPanel({
       >
         <textarea
           ref={inputRef}
+          className="absolute pointer-events-none h-px w-px opacity-0 [@media(pointer:coarse)]:static [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:w-full [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:border-b [@media(pointer:coarse)]:px-3"
            aria-label={t("chat.extensionInput")}
           autoCapitalize="off"
           autoComplete="off"
@@ -2272,13 +2331,7 @@ function ExtensionCustomPanel({
             if (text) onInput(request, asBracketedPaste(text));
           }}
           style={{
-            position: "absolute",
-            width: 1,
-            height: 1,
-            padding: 0,
-            border: 0,
-            opacity: 0,
-            pointerEvents: "none",
+            fontSize: 16,
           }}
         />
         <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
@@ -2309,7 +2362,11 @@ function ExtensionCustomPanel({
               </svg>
             </button>
             <button
-              onClick={() => onInput(request, "\x03")}
+              type="button"
+              onClick={() => {
+                inputRef.current?.focus();
+                onInput(request, "\x03");
+              }}
               style={{
                 padding: "5px 9px",
                 borderRadius: 6,
@@ -2324,7 +2381,24 @@ function ExtensionCustomPanel({
             </button>
           </div>
         </div>
+        <div className="hidden shrink-0 flex-wrap gap-1 border-b px-3 py-1 [@media(pointer:coarse)]:flex">
+          {(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab", "Enter", "Escape"] as const).map((key, index) => (
+            <button
+              key={key}
+              type="button"
+              aria-label={key}
+              className="min-h-9 min-w-9 rounded border px-2"
+              onClick={() => {
+                const data = toTerminalKeyData({ key, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false });
+                if (data) onInput(request, data);
+              }}
+            >
+              {["↑", "↓", "←", "→", "Tab", "↵", "Esc"][index]}
+            </button>
+          ))}
+        </div>
         <pre
+          ref={outputRef}
           style={{
             margin: 0,
             padding: 14,
@@ -2336,6 +2410,7 @@ function ExtensionCustomPanel({
             fontSize: 13,
             lineHeight: 1.45,
             whiteSpace: "pre",
+            WebkitTextSizeAdjust: "100%",
           }}
         >
           <AnsiText text={displayLines.join("\n")} />

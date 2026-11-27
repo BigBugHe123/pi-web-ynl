@@ -15,7 +15,7 @@ export async function GET() {
     cache: "no-store",
     signal: AbortSignal.timeout(1_000),
   })
-    .then((response) => response.ok ? response.json() as Promise<{ sessionListVersion?: number; runningSessionIds?: string[]; awaitingInputSessionIds?: string[]; sessionUiStateRevision?: number }> : null)
+    .then((response) => response.ok ? response.json() as Promise<{ sessionListVersion?: number; runningSessionIds?: string[]; awaitingInputSessionIds?: string[]; subagentsActiveSessionIds?: string[]; sessionUiStateRevision?: number }> : null)
     .catch(() => null);
   return NextResponse.json(
     {
@@ -23,7 +23,7 @@ export async function GET() {
       runningSessionIds: rustRunning?.runningSessionIds ?? [],
       awaitingInputSessionIds: rustRunning?.awaitingInputSessionIds ?? [],
       completionNotificationSuppressedSessionIds: [],
-      subagentsActiveSessionIds: [],
+      subagentsActiveSessionIds: rustRunning?.subagentsActiveSessionIds ?? [],
       sessionUiStateRevision: rustRunning?.sessionUiStateRevision ?? null,
       serverNow: Date.now(),
     },

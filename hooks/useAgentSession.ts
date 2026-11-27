@@ -162,6 +162,7 @@ type AgentStateResponse = {
   autoCompactionEnabled?: boolean;
   extensionStatuses?: ExtensionStatusItem[];
   extensionWidgets?: ExtensionWidgetItem[];
+  extensionShortcuts?: { key: string; description: string | null }[];
   mcpStatuses?: McpRuntimeStatus[];
   mcpConfigErrors?: string[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
@@ -575,6 +576,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionDialogs, setExtensionDialogs] = useState<ExtensionUiDialogRequest[]>([]);
   const [extensionCustomUis, setExtensionCustomUis] = useState<ExtensionUiCustomRequest[]>([]);
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
+  const [extensionShortcuts, setExtensionShortcuts] = useState<NonNullable<AgentStateResponse["extensionShortcuts"]>>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [mcpStatuses, setMcpStatuses] = useState<McpRuntimeStatus[]>([]);
   const [mcpConfigErrors, setMcpConfigErrors] = useState<string[]>([]);
@@ -868,6 +870,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const res = await fetch(agentStatusUrl(sid));
       if (!res.ok) return;
       const data = await res.json() as { state?: AgentStateResponse };
+      if (sessionIdRef.current === sid) setExtensionShortcuts(data.state?.extensionShortcuts ?? []);
       applyLiveUsage(data.state, sid, runId, requestId);
     } catch {
       // A later message or the running-state poll retries the usage read.
@@ -1013,6 +1016,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (sessionIdRef.current !== sid) return null;
 
         const liveState = agentState.state;
+        setExtensionShortcuts(liveState?.extensionShortcuts ?? []);
         syncLiveModel(liveState);
         if (liveState) {
           applyLiveUsage(liveState, sid, runId, usageRequestId);
@@ -1522,6 +1526,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       console.error("Failed to send extension custom UI input:", e);
     }
   }, []);
+
+  const resizeExtensionCustomPanel = useCallback(async (id: string, columns: number) => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    try {
+      await sendAgentCommand(sid, { type: "extension_ui_resize", id, columns });
+    } catch (error) {
+      console.error("Failed to resize extension panel:", error);
+    }
+  }, []);
+
+  const runExtensionShortcut = useCallback((key: string) => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    void ensureEventsConnected(sid).then(() => sendAgentCommand(sid, { type: "extension_shortcut", key }))
+      .catch((error) => console.error("Failed to run extension shortcut:", error));
+  }, [ensureEventsConnected]);
 
   const addNotice = useCallback((notice: { id?: string; message: string; type?: NoticeType }) => {
     const message = notice.message.trim();
@@ -3283,6 +3304,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       clearSlashCommands();
       setExtensionStatuses([]);
       setExtensionWidgets([]);
+      setExtensionShortcuts([]);
       setMcpStatuses([]);
       setMcpConfigErrors([]);
       const [state] = await Promise.all([
@@ -3736,7 +3758,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices: noticeState.visible, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, mcpStatuses, mcpConfigErrors, respondToExtensionUi, sendExtensionCustomInput,
+    notices: noticeState.visible, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, extensionShortcuts, runExtensionShortcut, mcpStatuses, mcpConfigErrors, respondToExtensionUi, sendExtensionCustomInput, resizeExtensionCustomPanel,
     isAutoModelSelection: isNew && newSessionModel === null,
     isAutoThinkingSelection: isNew && newSessionThinkingLevel === null,
     defaultModel: newSessionDefaultModel,
