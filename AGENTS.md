@@ -125,6 +125,7 @@ Design decisions and traps live in `docs/agents/`, one note per area. Read the r
 - [files-and-access.md](docs/agents/files-and-access.md): the `/api/files` allow-list, worktrees and project grouping, file tree, uploads, previews, and web password throttling. Rust owns these backend operations; Next owns the browser UI and same-origin gateway adapters.
 - [settings-ui.md](docs/agents/settings-ui.md): settings UI and controls; Rust owns plugin, skill and backend settings operations. UI: `components/SettingsUi.tsx`, `components/SkillsConfig.tsx`, `components/PluginsConfig.tsx`; backend: `pi-rust-ynl/crates/pi-web-backend/src/{plugins,skills}*`.
 - [side-sessions.md](docs/agents/side-sessions.md): side-chat UI and behavior; Rust owns session forks, side-session runtime, storage and APIs. See `pi-rust-ynl/crates/pi-web-backend/src/session*` and the session UI components/hooks.
+- [subagents.md](docs/agents/subagents.md): subagent UI and user-facing behavior; runtime integration is owned by the Rust backend and `pi-rust` subagent plugin. See the Rust `pi-web-backend` and `pi-agent` crates plus the relevant UI components.
 - [client-platform.md](docs/agents/client-platform.md): global shortcuts, mobile keyboard and viewport, terminal UI, completion sound and launcher. Terminal runtime is Rust-owned in `pi-rust-ynl/crates/pi-web-backend`; UI includes `components/TerminalPanel.tsx`, `components/TerminalExtraKeys.tsx`, `hooks/useTerminalTheme.ts`, keyboard CSS, and `bin/pi-web.js`.
 
 ---

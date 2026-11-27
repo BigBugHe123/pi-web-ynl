@@ -162,8 +162,22 @@ type AgentStateResponse = {
   autoCompactionEnabled?: boolean;
   extensionStatuses?: ExtensionStatusItem[];
   extensionWidgets?: ExtensionWidgetItem[];
+  mcpStatuses?: McpRuntimeStatus[];
+  mcpConfigErrors?: string[];
   queuedMessages?: { steering?: string[]; followUp?: string[] } | null;
 };
+
+export interface McpRuntimeStatus {
+  name: string;
+  enabled: boolean;
+  lifecycle: string;
+  state: string | null;
+  error: string | null;
+  tools: string[];
+  hasResources: boolean;
+  oauth: boolean;
+  message: string | null;
+}
 
 export interface QueuedMessages {
   steering: string[];
@@ -562,6 +576,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionCustomUis, setExtensionCustomUis] = useState<ExtensionUiCustomRequest[]>([]);
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
+  const [mcpStatuses, setMcpStatuses] = useState<McpRuntimeStatus[]>([]);
+  const [mcpConfigErrors, setMcpConfigErrors] = useState<string[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
 
   const eventConnectionRef = useRef<AgentEventConnection | null>(null);
@@ -998,6 +1014,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
           if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
+          if (liveState.mcpStatuses !== undefined) setMcpStatuses(liveState.mcpStatuses ?? []);
+          if (liveState.mcpConfigErrors !== undefined) setMcpConfigErrors(liveState.mcpConfigErrors ?? []);
           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
           if (liveState.autoCompactionEnabled !== undefined) setAutoCompactionEnabled(liveState.autoCompactionEnabled ?? true);
         } else if (!agentState.running) {
@@ -1843,6 +1861,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (state) {
         if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
         if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
+        if (state.mcpStatuses !== undefined) setMcpStatuses(state.mcpStatuses ?? []);
+        if (state.mcpConfigErrors !== undefined) setMcpConfigErrors(state.mcpConfigErrors ?? []);
         // The poll leaves the prompt out: read the one the run ended with once, as agent_end does.
         fetch(agentFullStateUrl(sid))
           .then((r) => r.ok ? r.json() : null)
@@ -2025,6 +2045,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
               if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
               if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
+              if (d.state?.mcpStatuses !== undefined) setMcpStatuses(d.state.mcpStatuses ?? []);
+              if (d.state?.mcpConfigErrors !== undefined) setMcpConfigErrors(d.state.mcpConfigErrors ?? []);
               // Aborted turns can leave messages queued in pi (delivered with the
               // next turn); dead wrapper (no state) means the queue is gone.
               setQueuedMessages(normalizeQueuedMessages(d.state?.queuedMessages));
@@ -3235,6 +3257,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       clearSlashCommands();
       setExtensionStatuses([]);
       setExtensionWidgets([]);
+      setMcpStatuses([]);
+      setMcpConfigErrors([]);
       const [state] = await Promise.all([
         sendAgentCommand<AgentStateResponse>(activeSessionId, { type: "get_state" }),
         loadTools(activeSessionId),
@@ -3344,6 +3368,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
       if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
       if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
+      if (agentState.state.mcpStatuses !== undefined) setMcpStatuses(agentState.state.mcpStatuses ?? []);
+      if (agentState.state.mcpConfigErrors !== undefined) setMcpConfigErrors(agentState.state.mcpConfigErrors ?? []);
       if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
     }
   }, [dispatch, loadTools, waitForBashSettlement, waitForPromptSettlement]);
@@ -3682,7 +3708,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats, autoCompactionEnabled,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices: noticeState.visible, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
+    notices: noticeState.visible, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, mcpStatuses, mcpConfigErrors, respondToExtensionUi, sendExtensionCustomInput,
     isAutoModelSelection: isNew && newSessionModel === null,
     isAutoThinkingSelection: isNew && newSessionThinkingLevel === null,
     defaultModel: newSessionDefaultModel,
