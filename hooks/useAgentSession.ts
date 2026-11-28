@@ -2130,6 +2130,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       case "prompt_error":
         addNotice({ type: "error", message: (event.errorMessage as string | undefined) ?? "Command failed" });
         break;
+      case "command_output":
+        // Composer actions such as Reload already provide their own feedback.
+        if (rpcPromptPendingRef.current && typeof event.text === "string") {
+          addNotice({ type: "info", message: event.text });
+        }
+        break;
       case "extension_error":
         addNotice({
           type: "error",
@@ -2994,6 +3000,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     const [, commandName, rawArgs = ""] = match;
     const args = rawArgs.trim();
+    const advertised = slashCommandsRef.current.find((command) => command.name === commandName);
+    if (commandName !== "mcp" && advertised && advertised.sourceInfo?.path !== `builtin:${commandName}`) {
+      return { handled: false };
+    }
     const sid = sessionIdRef.current ?? await ensureNewSession();
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;

@@ -39,10 +39,11 @@ function callbackSource(name) {
 // The callback reads hook state as free variables; `with` resolves them from the scope.
 const compiled = new Function("scope", `with (scope) { return ${callbackSource("handleBuiltinSlashCommand")}; }`);
 
-function hook(reply) {
+function hook(reply, commands = []) {
   const calls = { notices: [], requests: [], forked: [] };
   const scope = {
     sessionIdRef: { current: "session-1" },
+    slashCommandsRef: { current: commands },
     ensureNewSession: async () => "session-1",
     addNotice: (notice) => calls.notices.push(notice),
     agentRunningRef: { current: false },
@@ -58,6 +59,14 @@ function hook(reply) {
   };
   return { run: compiled(scope), calls };
 }
+
+test("a server-advertised extension can own /clone", async () => {
+  const { run, calls } = hook(undefined, [
+    { name: "clone", source: "extension", sourceInfo: { path: "/extensions/clone.js" } },
+  ]);
+  assert.deepEqual(await run("/clone"), { handled: false });
+  assert.deepEqual(calls.requests, []);
+});
 
 test("a /clone a session_before_fork handler cancelled says nothing and opens no copy", async () => {
   const { run, calls } = hook({ cancelled: true, byExtension: true });

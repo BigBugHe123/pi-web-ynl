@@ -46,7 +46,7 @@ const runningCodemode = {
   },
 };
 
-async function setup(options = {}) {
+async function setup(options = {}, streaming = true) {
   mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const sources = [];
   const stateRead = Promise.withResolvers();
@@ -67,7 +67,7 @@ async function setup(options = {}) {
     if (url === "/api/sessions/s1/state") return stateRead.promise;
     if (url.startsWith("/api/agent/s1/lease?holder=")) return json({ success: true, running: true, awaitingInput: false, subagentsActive: false });
     if (url === "/api/agent/s1" && init.body) return json({ success: true, data: [] });
-    if (url.startsWith("/api/agent/s1")) return json({ running: true, state: { isStreaming: true } });
+    if (url.startsWith("/api/agent/s1")) return json({ running: true, state: { isStreaming: streaming } });
     throw new Error(`unexpected fetch ${url} ${init.body ?? ""}`);
   };
 
@@ -82,7 +82,7 @@ async function setup(options = {}) {
   };
   // The mount's own state read, reporting only that the run streams.
   const landStateRead = async () => {
-    stateRead.resolve(json({ running: true, state: { isStreaming: true, isPromptRunning: false } }));
+    stateRead.resolve(json({ running: true, state: { isStreaming: streaming, isPromptRunning: false } }));
     await settle();
     hook.flush();
   };
@@ -104,6 +104,19 @@ function teardown(state) {
   state.hook.unmount();
   mock.timers.reset();
 }
+
+test("a headless slash command shows its RPC output in the chat", async () => {
+  const state = await setup({}, false);
+  try {
+    await state.emit({ type: "connected", sessionId: "s1", isStreaming: false });
+    await state.landStateRead();
+    await state.hook.result.handleSend("/extensions");
+    await state.emit({ type: "command_output", text: "Extensions in this session:\ncomputer-use" });
+    assert(state.hook.result.notices.some((notice) => notice.message === "Extensions in this session:\ncomputer-use"));
+  } finally {
+    teardown(state);
+  }
+});
 
 test("an extension's session end hands the session back and never reconnects", async () => {
   const ended = [];

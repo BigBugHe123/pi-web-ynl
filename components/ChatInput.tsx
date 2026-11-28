@@ -353,6 +353,20 @@ const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
   { name: "side", description: "chat.commandSide", source: "builtin", availableWhileStreaming: true },
 ];
 
+export function projectSlashCommands(commands: readonly SlashCommandInfo[], isStreaming: boolean): SlashCommandPaletteItem[] {
+  const entries = commands.map((command) => {
+    if (!isRpcBuiltin(command)) return command;
+    return BUILTIN_SLASH_COMMANDS.find((builtin) => builtin.name === command.name) ?? command;
+  });
+  return isStreaming
+    ? entries.filter((command) => command.source !== "builtin" || command.availableWhileStreaming)
+    : entries;
+}
+
+function isRpcBuiltin(command: SlashCommandInfo): boolean {
+  return command.source === "extension" && command.sourceInfo?.path === `builtin:${command.name}`;
+}
+
 function getBuiltinSlashCommand(message: string): BuiltinSlashCommand | undefined {
   const match = message.trim().match(/^\/([^\s]+)(?:\s|$)/);
   if (!match) return undefined;
@@ -382,13 +396,17 @@ export function isExactSlashCommand(message: string, command: SlashCommandPalett
  * than completing it to "/name ": a built-in typed in full (while a run
  * streams, only one that may run then), or a bare `/mcp` on pi's built-in
  * `/mcp`, which opens Settings › MCP at once, as it does before the command
- * list has loaded. Every other extension command still takes a second Enter.
+ * list has loaded. Backend built-ins also submit when typed in full while
+ * idle. Other extension commands still take a second Enter.
  */
 export function submitsSlashCommandOnEnter(message: string, command: SlashCommandPaletteItem, isStreaming: boolean): boolean {
   if (command.source === "builtin") {
     return isExactSlashCommand(message, command) && (!isStreaming || command.availableWhileStreaming === true);
   }
-  return isBuiltinMcpCommand(command) && isBareMcpCommand(message);
+  if (isBuiltinMcpCommand(command)) return isBareMcpCommand(message);
+  return !isStreaming &&
+    isRpcBuiltin(command) &&
+    message.trim() === `/${command.name}`;
 }
 
 export const RUN_END_CLICK_GUARD_MS = 600;
@@ -1223,10 +1241,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
   const filteredSlashCommands = (() => {
     if (slashQuery === null) return [];
-    const builtinCommands = isStreaming
-      ? BUILTIN_SLASH_COMMANDS.filter((command) => command.availableWhileStreaming)
-      : BUILTIN_SLASH_COMMANDS;
-    const commands = [...builtinCommands, ...(slashCommands ?? [])];
+    const commands = projectSlashCommands(slashCommands ?? [], isStreaming);
     return filterSlashCommands(commands, slashQuery, t);
   })();
 

@@ -19,6 +19,31 @@ const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
+test("the slash palette lists only commands advertised by the backend", async () => {
+  const { projectSlashCommands } = await jiti.import("./ChatInput.tsx");
+  const reload = { name: "reload", source: "extension", sourceInfo: { path: "builtin:reload" } };
+  const session = { name: "session", source: "extension", sourceInfo: { path: "builtin:session" } };
+  const mcp = { name: "mcp", source: "extension", sourceInfo: { path: "builtin:mcp" } };
+  const custom = { name: "custom", source: "extension", sourceInfo: { path: "/extensions/custom.js" } };
+  const remote = [reload, session, mcp, custom];
+
+  assert.deepEqual(projectSlashCommands([], false), []);
+  const idle = projectSlashCommands(remote, false);
+  assert.deepEqual(idle.map((item) => item.name), remote.map((item) => item.name));
+  assert.deepEqual(idle.filter((item) => item.name === "reload").map((item) => item.source), ["builtin"]);
+  assert.deepEqual(idle.filter((item) => item.name === "session").map((item) => item.source), ["builtin"]);
+  assert(idle.includes(mcp) && idle.includes(custom));
+  assert.deepEqual(projectSlashCommands(remote, true).map((item) => item.name), ["session", "mcp", "custom"]);
+});
+
+test("Enter submits an exact RPC built-in from the slash palette", () => {
+  const command = { name: "extensions", source: "extension", sourceInfo: { path: "builtin:extensions" } };
+  assert.equal(submitsSlashCommandOnEnter("/extensions", command, false), true);
+  assert.equal(submitsSlashCommandOnEnter("/extension", command, false), false);
+  assert.equal(submitsSlashCommandOnEnter("/extensions", command, true), false);
+  assert.equal(submitsSlashCommandOnEnter("/extensions", { ...command, sourceInfo: { path: "/ext.js" } }, false), false);
+});
+
 test("preserves pasted HTML links as Markdown without changing plain text layout", () => {
   const link = (label, href, occurrence = 0) => ({ label, href, occurrence });
 

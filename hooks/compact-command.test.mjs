@@ -58,6 +58,7 @@ function hook() {
   const compact = deferred();
   const scope = {
     sessionIdRef: { current: "session-1" },
+    slashCommandsRef: { current: [] },
     ensureNewSession: async () => "session-1",
     addNotice: (notice) => calls.notices.push(notice),
     isCompacting: false,
